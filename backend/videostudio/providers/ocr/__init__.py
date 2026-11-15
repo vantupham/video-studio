@@ -99,6 +99,12 @@ def _run(args: list[str], stdin: bytes | None = None, timeout: float = 300
                           env={**os.environ, "OMP_THREAD_LIMIT": "2"})
 
 
+def typical_height(heights: list[float]) -> float | None:
+    """Lower quartile of the word heights of one line (see ``OCRLine.size_px``)."""
+    ordered = sorted(h for h in heights if h > 0)
+    return ordered[(len(ordered) - 1) // 4] if ordered else None
+
+
 def parse_tesseract_tsv(tsv: str) -> list[OCRLine]:
     """Group the word rows of ``tesseract … tsv`` output into lines."""
     lines: dict[tuple[int, int, int], dict[str, Any]] = {}
@@ -117,9 +123,11 @@ def parse_tesseract_tsv(tsv: str) -> list[OCRLine]:
             continue
         line = lines.get(key)
         if line is None:
-            line = lines[key] = {"words": [], "bbox": [left, top, right, bottom], "conf": []}
+            line = lines[key] = {"words": [], "bbox": [left, top, right, bottom], "conf": [],
+                                 "heights": []}
             order.append(key)
         line["words"].append(text)
+        line["heights"].append(bottom - top)
         b = line["bbox"]
         line["bbox"] = [min(b[0], left), min(b[1], top), max(b[2], right), max(b[3], bottom)]
         if conf >= 0:
@@ -134,7 +142,8 @@ def parse_tesseract_tsv(tsv: str) -> list[OCRLine]:
             continue  # specks and scanner noise
         out.append(OCRLine(text=text, bbox=tuple(line["bbox"]),
                            confidence=round(mean / 100, 3) if confs else None,
-                           block=key[0] * 1000 + key[1]))
+                           block=key[0] * 1000 + key[1],
+                           size_px=typical_height(line["heights"])))
     return out
 
 
@@ -314,13 +323,16 @@ def parse_google_vision(data: dict[str, Any]) -> list[OCRLine]:
                                 out.append(OCRLine(
                                     text=text.strip(), bbox=bbox, block=block_no,
                                     confidence=round(sum(confs) / len(confs), 3)
-                                    if confs else None))
+                                    if confs else None,
+                                    size_px=typical_height([b[3] - b[1] for b in boxes])))
                             text, boxes, confs = "", [], []
                 if text.strip() and boxes:
                     bbox = (min(b[0] for b in boxes), min(b[1] for b in boxes),
                             max(b[2] for b in boxes), max(b[3] for b in boxes))
-                    out.append(OCRLine(text=text.strip(), bbox=bbox, block=block_no))
+                    out.append(OCRLine(text=text.strip(), bbox=bbox, block=block_no,
+                                       size_px=typical_height([b[3] - b[1] for b in boxes])))
     return out
+
 
 
 class GoogleVisionOCR(OCRProvider):

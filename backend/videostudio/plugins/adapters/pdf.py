@@ -319,7 +319,7 @@ class PdfAdapter:
             text = collapse_spaces(normalize_text(line.text))
             if not text:
                 continue
-            size = round(line.height * scale * 2) / 2
+            size = round(line.text_size * scale * 2) / 2
             y0, x0 = line.bbox[1] * 72 / dpi, line.bbox[0] * 72 / dpi
             prev = items[-1] if items else None
             if prev and prev.block_no == line.block and \

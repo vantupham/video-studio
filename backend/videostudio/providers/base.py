@@ -204,10 +204,18 @@ class OCRLine(BaseModel):
     bbox: tuple[float, float, float, float] = (0, 0, 0, 0)
     confidence: float | None = None
     block: int = 0  # lines with the same block number belong to one paragraph
+    # Lower-quartile word height in pixels: close to the height of plain lowercase words.
+    # Stacked Vietnamese diacritics (ẩ, ề, ổ…), ascenders and descenders stretch the line box
+    # unevenly, so this is the better font-size estimate when the engine has word boxes.
+    size_px: float | None = None
 
     @property
     def height(self) -> float:
         return max(0.0, self.bbox[3] - self.bbox[1])
+
+    @property
+    def text_size(self) -> float:
+        return self.size_px or self.height
 
 
 class OCRResult(BaseModel):
