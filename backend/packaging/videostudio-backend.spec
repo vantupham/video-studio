@@ -21,6 +21,8 @@ datas = [
     (str(BACKEND / "videostudio" / "styles_builtin"), "videostudio/styles_builtin"),
     (str(BACKEND / "videostudio" / "assets" / "fonts"), "videostudio/assets/fonts"),
     *collect_data_files("certifi"),
+    # python-docx opens its default template (default.docx / XML parts) from package data.
+    *collect_data_files("docx"),
 ]
 
 hiddenimports = (
@@ -29,7 +31,9 @@ hiddenimports = (
     + collect_submodules("websockets")
     + collect_submodules("edge_tts")
     + collect_submodules("aiohttp")
-    + ["multipart", "python_multipart", "PIL._imagingft", "yaml"]
+    + collect_submodules("docx")
+    + collect_submodules("pymupdf")
+    + ["multipart", "python_multipart", "PIL._imagingft", "yaml", "lxml.etree", "lxml._elementpath"]
 )
 
 a = Analysis(
