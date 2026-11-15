@@ -11,6 +11,7 @@ from fastapi.concurrency import run_in_threadpool
 from videostudio import __version__
 from videostudio.ir import load_json_schema
 from videostudio.media import detect_ffmpeg
+from videostudio.providers.base import CAPABILITIES
 from videostudio.secretstore import SecretStoreError
 
 from .schemas import SecretTestRequest
@@ -44,8 +45,8 @@ async def system_info(svc: Services = Depends(get_services)) -> dict[str, Any]:
         "job_types": svc.queue.job_types,
         "plugins": {
             "input_adapters": sorted(svc.registry.input_adapters),
-            "llm_providers": sorted(svc.registry.llm_providers),
-            "tts_providers": sorted(svc.registry.tts_providers),
+            "providers": {cap: sorted(p.id for p in svc.registry.providers_for(cap))
+                          for cap in CAPABILITIES},
             "renderers": sorted(svc.registry.renderers),
             "publishers": sorted(svc.registry.publishers),
             "errors": [e.__dict__ for e in svc.registry.errors],

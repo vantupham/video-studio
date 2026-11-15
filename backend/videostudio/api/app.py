@@ -11,10 +11,12 @@ from videostudio.config import Settings
 from videostudio.db import make_engine, make_session_factory, run_migrations
 from videostudio.jobs import EventBus, JobQueue
 from videostudio.jobs.handlers import register_builtin_handlers
+from videostudio.pipeline.service import PipelineService
 from videostudio.plugins import build_registry
+from videostudio.providers.service import ProviderService
 from videostudio.secretstore import create_secret_store
 
-from . import routes_jobs, routes_projects, routes_system
+from . import media, routes_jobs, routes_pipeline, routes_projects, routes_providers, routes_system
 from .auth import TOKEN_HEADER, require_token
 from .services import Services
 
@@ -35,8 +37,14 @@ def create_app(settings: Settings | None = None, start_workers: bool = True) -> 
         session_factory = make_session_factory(engine)
         registry = build_registry(settings.plugins_dir)
         bus = EventBus()
+        secrets = create_secret_store(settings.secrets_dir)
+        providers = ProviderService(session_factory, registry.providers, secrets,
+                                    models_dir=settings.data_dir / "models",
+                                    cache_dir=settings.data_dir / "cache")
+        providers.seed_defaults()
+        pipeline = PipelineService(settings, session_factory, providers)
         queue = JobQueue(session_factory, bus, workers=settings.workers)
-        register_builtin_handlers(queue, session_factory, settings, registry)
+        register_builtin_handlers(queue, session_factory, settings, registry, pipeline)
         queue.requeue_stale()
         app.state.services = Services(
             settings=settings,
@@ -45,7 +53,9 @@ def create_app(settings: Settings | None = None, start_workers: bool = True) -> 
             registry=registry,
             bus=bus,
             queue=queue,
-            secrets=create_secret_store(settings.secrets_dir),
+            secrets=secrets,
+            providers=providers,
+            pipeline=pipeline,
         )
         if start_workers:
             queue.start()
@@ -75,5 +85,8 @@ def create_app(settings: Settings | None = None, start_workers: bool = True) -> 
     app.include_router(routes_system.router, dependencies=protected)
     app.include_router(routes_projects.router, dependencies=protected)
     app.include_router(routes_jobs.router, dependencies=protected)
+    app.include_router(routes_providers.router, dependencies=protected)
+    app.include_router(routes_pipeline.router, dependencies=protected)
+    app.include_router(media.router)
     app.include_router(routes_jobs.ws_router)
     return app

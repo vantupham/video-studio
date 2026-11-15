@@ -54,6 +54,9 @@ def setup_logging(settings: Settings, level: str) -> None:
         handlers.append(stream)
     logging.basicConfig(level=level.upper(), handlers=handlers, force=True)
     logging.getLogger("alembic").setLevel(logging.WARNING)
+    # Never log provider request details (URLs/headers may identify accounts).
+    for noisy in ("httpx", "httpcore", "edge_tts", "faster_whisper"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def _parent_alive(pid: int) -> bool:
