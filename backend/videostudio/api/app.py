@@ -14,9 +14,18 @@ from videostudio.jobs.handlers import register_builtin_handlers
 from videostudio.pipeline.service import PipelineService
 from videostudio.plugins import build_registry
 from videostudio.providers.service import ProviderService
+from videostudio.review import lifecycle
 from videostudio.secretstore import create_secret_store
 
-from . import media, routes_jobs, routes_pipeline, routes_projects, routes_providers, routes_system
+from . import (
+    media,
+    routes_jobs,
+    routes_pipeline,
+    routes_projects,
+    routes_providers,
+    routes_system,
+    routes_videos,
+)
 from .auth import TOKEN_HEADER, require_token
 from .services import Services
 
@@ -46,6 +55,8 @@ def create_app(settings: Settings | None = None, start_workers: bool = True) -> 
         queue = JobQueue(session_factory, bus, workers=settings.workers)
         register_builtin_handlers(queue, session_factory, settings, registry, pipeline)
         queue.requeue_stale()
+        with session_factory.begin() as s:
+            lifecycle.reset_stale_generating(s)
         app.state.services = Services(
             settings=settings,
             engine=engine,
@@ -87,6 +98,7 @@ def create_app(settings: Settings | None = None, start_workers: bool = True) -> 
     app.include_router(routes_jobs.router, dependencies=protected)
     app.include_router(routes_providers.router, dependencies=protected)
     app.include_router(routes_pipeline.router, dependencies=protected)
+    app.include_router(routes_videos.router, dependencies=protected)
     app.include_router(media.router)
     app.include_router(routes_jobs.ws_router)
     return app
