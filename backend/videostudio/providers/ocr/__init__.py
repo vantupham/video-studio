@@ -149,8 +149,9 @@ class TesseractOCR(OCRProvider):
     id: ClassVar[str] = "tesseract"
     name: ClassVar[str] = "Tesseract OCR (trên máy)"
     description: ClassVar[str] = (
-        "Chạy trên máy, miễn phí, không gửi tài liệu ra ngoài. Dữ liệu tiếng Việt "
-        "(vie.traineddata) được tải về thư mục models/ ở lần dùng đầu tiên.")
+        "Chạy trên máy, miễn phí, không gửi tài liệu ra ngoài. Bản cài Windows kèm sẵn "
+        "Tesseract và dữ liệu tiếng Việt; bộ dữ liệu khác (best) được tải về thư mục models/ "
+        "ở lần dùng đầu tiên.")
     docs_url: ClassVar[str | None] = "https://github.com/tesseract-ocr/tesseract"
     requires_network: ClassVar[bool] = False
 

@@ -5,23 +5,27 @@ DOCX, PDF, website cần đăng nhập — thành **video có thuyết minh và 
 cách, cho phép xem lại / duyệt rồi tự động đăng lên mạng xã hội (YouTube, Facebook Page,
 TikTok, Instagram…).
 
-> **Trạng thái: Giai đoạn 1 (tạo video).** Từ kịch bản hoặc file Markdown tiếng Việt:
-> LLM viết kịch bản + storyboard → sửa từng cảnh (lời, hình, thời lượng, viết lại bằng AI) →
-> giọng đọc tiếng Việt → phụ đề căn khớp (SRT/VTT/ASS, tô sáng từng từ cho video ngắn) →
-> render FFmpeg hai phong cách **giải thích 16:9** và **video ngắn 9:16**, có nhạc nền tự
-> nhỏ lại khi có lời và logo / màn hình mở đầu–kết thúc. Nhiều **nhà cung cấp** cho mỗi chức
-> năng (OpenAI, Claude, Gemini, Ollama, Edge TTS, Azure, Google, ElevenLabs, FPT.AI, Piper…),
-> chọn / đổi / cấu hình ngay trong ứng dụng; khoá API lưu bằng DPAPI. Chưa đăng mạng xã hội —
-> xem [lộ trình](#lộ-trình).
+> **Trạng thái: Giai đoạn 2 (duyệt và đăng).** Nạp kịch bản, Markdown (kèm ảnh), **DOCX**,
+> **PDF** (trang scan được OCR tiếng Việt bằng Tesseract kèm sẵn) → LLM viết kịch bản +
+> storyboard → giọng đọc tiếng Việt + phụ đề căn khớp → render FFmpeg (16:9 / 9:16, crossfade,
+> Ken Burns) → **duyệt** (dải cảnh bấm được, sửa từng cảnh + dựng lại một phần, yêu cầu sửa kèm
+> ghi chú, lịch sử phiên bản + so sánh) → **đăng YouTube và Facebook Page** (ứng dụng OAuth của
+> chính bạn, metadata gợi ý bằng AI, thumbnail, phụ đề, Reels) ngay hoặc **hẹn giờ**; ứng dụng
+> chạy nền dưới khay hệ thống, tự khởi động cùng Windows. Nhiều **nhà cung cấp** cho mỗi chức
+> năng (OpenAI, Claude, Gemini, Ollama, Edge TTS, Azure, Google, ElevenLabs, FPT.AI, Piper,
+> Tesseract, Google Vision…); khoá API và token lưu bằng DPAPI.
 
 - Kiến trúc chi tiết: [`docs/architecture.md`](docs/architecture.md)
-- Nhà cung cấp AI, chi phí, viết plugin: [`docs/providers.md`](docs/providers.md)
+- Nhà cung cấp AI, OCR, chi phí, viết plugin: [`docs/providers.md`](docs/providers.md)
+- Kết nối YouTube: [`docs/publishing/youtube.md`](docs/publishing/youtube.md) · Facebook Page:
+  [`docs/publishing/facebook.md`](docs/publishing/facebook.md)
 - Lộ trình: [`docs/roadmap.md`](docs/roadmap.md)
 
 ## Dùng nhanh
 
-1. **Dự án → Tạo dự án**, thêm nguồn (dán kịch bản hoặc chọn file `.md`), bấm **Chạy phân
-   tích**.
+1. **Dự án → Tạo dự án**, thêm nguồn (dán kịch bản; chọn file `.md`, `.docx`, `.pdf`; hoặc
+   thư mục / zip / nhiều file cho Markdown kèm ảnh), bấm **Chạy phân tích**. PDF dạng ảnh được
+   nhận dạng chữ (OCR) tự động.
 2. Ở thẻ **Tạo video**: chọn kiểu (16:9 / 9:16), thời lượng, giọng văn, nhà cung cấp LLM và
    giọng đọc (▶ Nghe thử), nhạc nền → **Tạo kịch bản**.
 3. Trong trình chỉnh sửa storyboard: sửa lời thoại, kiểu hình (thẻ tiêu đề, gạch đầu dòng, ảnh
@@ -29,6 +33,17 @@ TikTok, Instagram…).
    yêu cầu cho AI. Chỉ cảnh bị sửa mới đọc lại và dựng lại.
 4. **Xem nhanh** (độ phân giải thấp) hoặc **Dựng video** — theo dõi tiến độ từng bước, xem
    video kèm phụ đề ngay trong app, tải MP4/SRT/VTT/ASS hoặc **Mở thư mục**.
+5. **Duyệt & đăng** (hoặc **Thư viện video** → chọn video): xem video, bấm cảnh trên dải thời
+   gian để nhảy tới, **Sửa cảnh** → **Dựng lại** (chỉ cảnh đổi), **Yêu cầu sửa** kèm ghi chú hoặc
+   **Duyệt**. Phần **Lịch sử** ghi mọi thay đổi; danh sách phiên bản có nút **So sánh**.
+6. Tab **Đăng**: chọn tài khoản YouTube / Trang Facebook, sửa tiêu đề / mô tả / thẻ cho từng
+   nền tảng (**Gợi ý bằng AI**), thumbnail, chọn **Đăng ngay** hoặc hẹn giờ → **Kiểm tra** →
+   **Đăng** / **Lên lịch đăng**. Theo dõi ở **Lịch đăng**; đăng xong có thông báo + link bài.
+
+Kết nối tài khoản ở **Cài đặt → Tài khoản mạng xã hội** — bạn tạo ứng dụng Google / Meta của
+riêng mình (miễn phí) theo hướng dẫn [YouTube](docs/publishing/youtube.md) /
+[Facebook](docs/publishing/facebook.md). Muốn thử quy trình trước: **+ YouTube giả lập** /
+**+ Facebook giả lập** (không đăng gì lên mạng).
 
 Không có khoá API nào vẫn dùng được: mặc định là **Chế độ demo** (LLM giả lập) + **Edge TTS**
 miễn phí. Thêm khoá ở **Cài đặt → Nhà cung cấp**.
@@ -68,6 +83,8 @@ chưa, bộ cài sẽ tự tải.
   H.264 (Windows dùng WebView2, không cần)
 - `ffmpeg` (có libass) trong `PATH` khi dev trên Linux/macOS để render video
   (`sudo apt install ffmpeg`); trên Windows `scripts\fetch-ffmpeg.ps1` tải sẵn
+- `tesseract` để OCR PDF scan khi dev trên Linux/macOS (`sudo apt install tesseract-ocr`); trên
+  Windows `scripts\fetch-tesseract.ps1` tải sẵn (cần 7-Zip)
 - (Tuỳ chọn) giọng đọc / căn phụ đề offline: `cd backend && uv sync --extra offline` (Piper),
   `uv sync --extra whisper` (faster-whisper)
 
@@ -130,15 +147,23 @@ cd apps/desktop/src-tauri && cargo check
 ```
 
 Test render thật (cả hai phong cách) chạy khi có `ffmpeg`; đặt `VIDEOSTUDIO_REQUIRE_FFMPEG=1`
-để bắt buộc (CI làm vậy). Test gọi dịch vụ thật chỉ chạy khi có khoá trong biến môi trường
+để bắt buộc (CI làm vậy). Tương tự test OCR thật cần `tesseract`
+(`VIDEOSTUDIO_REQUIRE_TESSERACT=1`). File DOCX / PDF / PDF scan dùng trong test được tạo lúc
+chạy test (`tests/fixtures/make_fixtures.py`), không commit. Đăng YouTube / Facebook được test
+bằng mock HTTP (respx); test với tài khoản thật: xem
+[`docs/publishing/`](docs/publishing/youtube.md#kiểm-thử-với-tài-khoản-thật-dành-cho-nhà-phát-triển)
+(`YOUTUBE_CLIENT_ID`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_REFRESH_TOKEN`, `FACEBOOK_APP_ID`,
+`FACEBOOK_APP_SECRET`, `FACEBOOK_PAGE_TOKEN`). Test gọi dịch vụ thật chỉ chạy khi có khoá trong biến môi trường
 (`uv run pytest -m live`): `VIDEOSTUDIO_LIVE_EDGE=1`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
 `GEMINI_API_KEY`, `OLLAMA_URL`, `AZURE_SPEECH_KEY` + `AZURE_SPEECH_REGION`,
 `GOOGLE_TTS_API_KEY`, `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID`, `FPT_AI_KEY`,
 `PEXELS_API_KEY`.
 
 Smoke test bản đóng gói (giống CI): `uv run python ../scripts/smoke_sidecar.py
-<đường dẫn sidecar> --render` — chạy sidecar, tạo storyboard bằng LLM demo và render cả hai
-phong cách với giọng giả lập.
+<đường dẫn sidecar> --render --documents <thư mục fixture> --publish` — chạy sidecar, tạo
+storyboard bằng LLM demo và render cả hai phong cách với giọng giả lập, nạp DOCX / PDF / PDF
+scan (OCR), rồi duyệt và đăng lên tài khoản YouTube giả lập. Tạo thư mục fixture bằng
+`uv run python tests/fixtures/make_fixtures.py <thư mục>`.
 
 ## Build bộ cài Windows
 
@@ -149,7 +174,8 @@ powershell -ExecutionPolicy Bypass -File scripts\build-installer.ps1
 ```
 
 Script sẽ: build sidecar PyInstaller `--onedir` → chép vào
-`apps\desktop\src-tauri\binaries\backend\`, tải FFmpeg vào `binaries\ffmpeg\`, smoke-test
+`apps\desktop\src-tauri\binaries\backend\`, tải FFmpeg vào `binaries\ffmpeg\` và Tesseract vào
+`binaries\tesseract\`, smoke-test
 sidecar, rồi `tauri build --bundles nsis`. Kết quả:
 `apps\desktop\src-tauri\target\release\bundle\nsis\Video Studio_<phiên bản>_x64-setup.exe`.
 
@@ -159,6 +185,9 @@ dưới dạng artifact **VideoStudio-windows-x64-setup**.
 - Cài theo người dùng (`currentUser`), không cần quyền admin, vào
   `%LOCALAPPDATA%\Video Studio`.
 - Dữ liệu ứng dụng nằm ở `%LOCALAPPDATA%\VideoStudio`.
+- Đóng cửa sổ chỉ thu nhỏ xuống **khay hệ thống** (để lịch đăng vẫn chạy); thoát hẳn bằng menu
+  khay → **Thoát**. Tắt / bật trong **Cài đặt → Hệ thống**, cùng tuỳ chọn **Khởi động cùng
+  Windows**.
 - **Bộ cài chưa được ký số**: Windows SmartScreen sẽ hiện "Windows protected your PC" — bấm
   **More info → Run anyway**. Ký số sẽ được bổ sung sau.
 
@@ -193,19 +222,21 @@ video-studio/
 | `VIDEOSTUDIO_DEV=1` | cho phép token `dev-token`, mở CORS cho localhost |
 | `VIDEOSTUDIO_WORKERS` | số worker xử lý job (mặc định 2) |
 | `VIDEOSTUDIO_FFMPEG_DIR` | thư mục chứa `ffmpeg`/`ffprobe` |
+| `VIDEOSTUDIO_TESSERACT_DIR` | thư mục chứa `tesseract` (+ `tessdata/` đi kèm) |
+| `VIDEOSTUDIO_NO_TRAY=1` | (app desktop) đóng cửa sổ là thoát, không xuống khay |
 | `VIDEOSTUDIO_BACKEND_URL`, `VIDEOSTUDIO_BACKEND_TOKEN` | (dev) cho app Tauri dùng backend chạy sẵn |
 
 ## Lộ trình
 
 1. **Giai đoạn 1 (đã xong):** nhiều nhà cung cấp LLM/TTS, kịch bản + storyboard sửa được,
    phụ đề căn khớp, 2 phong cách (giải thích 16:9, video ngắn 9:16), render FFmpeg.
-2. **Giai đoạn 2:** DOCX/PDF + OCR, chuyển cảnh / hiệu ứng, đăng YouTube + Facebook Page có
-   hẹn giờ, chạy ở khay hệ thống, tự khởi động.
+2. **Giai đoạn 2 (đã xong):** DOCX/PDF + OCR, duyệt video + lịch sử phiên bản, crossfade / Ken
+   Burns, đăng YouTube + Facebook Page có hẹn giờ, chạy ở khay hệ thống, tự khởi động.
 3. **Giai đoạn 3:** đăng nhập website + quay màn hình bằng Playwright với Microsoft Edge đã cài
    (`channel="msedge"`), recipe YAML, thông tin đăng nhập lưu bằng DPAPI, OTP, làm mờ trường
    nhạy cảm, phong cách hướng dẫn zoom theo cú click.
 4. **Giai đoạn 4:** TikTok/Instagram/LinkedIn/X, Whisper/TTS chạy cục bộ kèm kiểm tra phần
-   cứng, avatar, thumbnail, đa ngôn ngữ, xuất/nhập dự án, tự động cập nhật.
+   cứng, video stock, avatar, đa ngôn ngữ, xuất/nhập dự án, tự động cập nhật.
 
 Chi tiết: [`docs/roadmap.md`](docs/roadmap.md).
 
@@ -215,3 +246,9 @@ Dự án cá nhân. FFmpeg được tải về khi build và tuân theo giấy p
 bản build). Font Be Vietnam Pro (`backend/videostudio/assets/fonts/`) theo giấy phép SIL Open
 Font License 1.1 (`OFL.txt`). Edge TTS dùng dịch vụ không chính thức của Microsoft qua thư viện
 `edge-tts` (LGPL-3.0).
+
+**PyMuPDF** (đọc PDF) theo giấy phép **AGPL-3.0** (hoặc giấy phép thương mại của Artifex). Ứng
+dụng cá nhân dùng nội bộ không bị ảnh hưởng, nhưng nếu phân phối Video Studio (kể cả bản cài)
+cho người khác thì phải công khai mã nguồn theo AGPL, hoặc mua giấy phép thương mại, hoặc thay
+adapter PDF bằng thư viện khác (ví dụ `pypdfium2`, Apache-2.0/BSD). Tesseract OCR (Apache-2.0)
+và dữ liệu `tessdata_fast` (Apache-2.0) được tải về khi build; python-docx theo MIT.

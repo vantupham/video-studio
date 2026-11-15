@@ -1,4 +1,4 @@
-# Nhà cung cấp AI (LLM, giọng đọc, phụ đề, hình ảnh)
+# Nhà cung cấp AI (LLM, giọng đọc, phụ đề, hình ảnh, OCR)
 
 Video Studio không gắn chặt với một dịch vụ nào. Mỗi **chức năng** có thể có nhiều **nhà cung
 cấp** (provider), bạn tự thêm, cấu hình, kiểm tra và chọn cái nào làm **mặc định**:
@@ -9,9 +9,14 @@ cấp** (provider), bạn tự thêm, cấu hình, kiểm tra và chọn cái n�
 | Giọng đọc (TTS) | đọc lời thuyết minh | Microsoft Edge TTS (miễn phí, *không chính thức*), Azure AI Speech, Google Cloud TTS, ElevenLabs, FPT.AI, OpenAI TTS, Piper (offline), Giọng giả lập |
 | Căn thời gian phụ đề | khi giọng đọc không trả về mốc thời gian từng từ | Ước lượng theo âm tiết (offline), faster-whisper (offline), giả lập |
 | Kho hình ảnh | ảnh minh hoạ cho cảnh kiểu "stock" | Pexels, Ảnh giả lập |
+| Nhận dạng chữ (OCR) | đọc chữ trên trang PDF dạng ảnh (bản scan) | Tesseract (trên máy, mặc định), Google Cloud Vision, Azure AI Vision, OCR giả lập |
+
+Đăng mạng xã hội (YouTube, Facebook Page) không phải nhà cung cấp AI — xem
+[`publishing/youtube.md`](publishing/youtube.md) và [`publishing/facebook.md`](publishing/facebook.md).
 
 Lần chạy đầu tiên ứng dụng tự tạo sẵn: **Chế độ demo** (LLM, mặc định), **Edge TTS miễn phí**
-(giọng đọc, mặc định), **Giọng giả lập**, **Ước lượng theo âm tiết** và **Ảnh giả lập** — nên
+(giọng đọc, mặc định), **Giọng giả lập**, **Ước lượng theo âm tiết**, **Ảnh giả lập** và
+**Tesseract OCR** (mặc định cho OCR) — nên
 có thể tạo video ngay mà không cần khoá API nào.
 
 ## Quản lý trong ứng dụng
@@ -22,8 +27,8 @@ có thể tạo video ngay mà không cần khoá API nào.
   **Thêm nhà cung cấp**. Có thể tạo nhiều bản của cùng một loại (ví dụ hai tài khoản OpenAI,
   hai cấu hình Ollama với model khác nhau).
 - **Đặt mặc định**: có hiệu lực ngay cho lần tạo tiếp theo, không cần khởi động lại.
-- **Sửa**: ô khoá API để trống = giữ khoá cũ; nhập giá trị mới = thay; xoá trắng rồi lưu bằng
-  API (`""`) = xoá khoá.
+- **Sửa**: ô khoá API để trống = giữ khoá cũ; nhập giá trị mới = thay; bấm **Xoá khoá** cạnh ô
+  khoá rồi lưu = xoá hẳn khoá khỏi kho bí mật (nhà cung cấp cần khoá sẽ báo thiếu cấu hình).
 - Với giọng đọc: **Tải danh sách giọng**, **▶ Nghe thử**, **Lưu làm giọng mặc định**.
 - Với LLM đã lưu: **Tải danh sách model** ngay trong form sửa.
 
@@ -148,6 +153,29 @@ khớp về văn bản gốc. Cài: `cd backend && uv sync --extra whisper`; mod
 "Ảnh kho (stock)" với từ khoá (tiếng Anh cho kết quả tốt hơn).
 
 **Ảnh giả lập** — ảnh nền gradient tạo trên máy.
+
+### Nhận dạng chữ (OCR)
+
+Dùng khi nạp PDF có trang **không có lớp chữ** (bản scan, ảnh chụp). Tuỳ chọn của nguồn PDF:
+*Nhận dạng chữ (OCR)* = Tự động (chỉ trang không có chữ) / Luôn luôn / Không; *Nhà cung cấp
+OCR* (để trống = mặc định); độ phân giải 200/300/400 dpi.
+
+**Tesseract OCR (trên máy)** — miễn phí, tài liệu không rời khỏi máy. Bộ cài Windows **kèm sẵn**
+Tesseract 5.4 và mô hình `vie` (tiếng Việt có dấu) + `eng` bản *fast* (~6 MB). Tuỳ chọn:
+`variant` (`fast` / `best` — bản best chính xác hơn, ~12 MB tiếng Việt, tải về `models/tessdata/`
+ở lần đầu), `extra_langs` (ví dụ `eng` cho tài liệu song ngữ), `psm`, `tesseract_path`. Khi dev
+trên Linux/macOS: `sudo apt install tesseract-ocr` / `brew install tesseract` (mô hình tiếng
+Việt tự tải). Chất lượng phụ thuộc bản scan: 300 dpi, thẳng, rõ nét cho kết quả tốt nhất.
+
+**Google Cloud Vision** — `api_key`\*. Bật *Cloud Vision API* trong dự án Google Cloud, tạo API
+key (nên giới hạn key chỉ cho Vision API). 1.000 trang/tháng miễn phí, sau đó ~1,5 USD /
+1.000 trang. Nhận dạng tiếng Việt viết tay / chất lượng thấp tốt hơn Tesseract.
+
+**Azure AI Vision (Read)** — `endpoint`\* (`https://<tên>.cognitiveservices.azure.com`),
+`api_key`\*. Tạo tài nguyên *Computer Vision* trong Azure Portal; gói F0 miễn phí 5.000
+giao dịch/tháng.
+
+**OCR giả lập** — trả về chữ cố định, dùng để thử quy trình.
 
 ## Chi phí ước tính cho một video 1 phút (~150 từ, ~1.000 ký tự)
 

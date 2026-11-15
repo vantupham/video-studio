@@ -9,7 +9,7 @@
 - SecretStore (DPAPI), tiện ích FFmpeg (tìm binary, `probe`, phát hiện encoder phần cứng).
 - CI: test Linux + Windows, build sidecar PyInstaller onedir, bộ cài NSIS (per-user).
 
-## Giai đoạn 1 — Tạo video đầu tiên (hiện tại, đã xong)
+## Giai đoạn 1 — Tạo video đầu tiên (đã xong)
 
 - Hệ thống nhà cung cấp: LLM (OpenAI, Anthropic, Gemini, Ollama, OpenAI-compatible, demo),
   TTS (Edge TTS, Azure, Google, ElevenLabs, FPT.AI, OpenAI, Piper, giả lập), căn phụ đề
@@ -27,13 +27,26 @@
 - UI: Cài đặt → Nhà cung cấp / Thương hiệu, thẻ Tạo video, trình chỉnh sửa storyboard, tiến độ
   từng bước, trình phát video kèm phụ đề, Mở thư mục.
 
-## Giai đoạn 2 — Nhiều nguồn hơn, duyệt và đăng
+## Giai đoạn 2 — Nhiều nguồn hơn, duyệt và đăng (hiện tại, đã xong)
 
-- Adapter DOCX, PDF (+ OCR cho PDF dạng ảnh).
-- Chuyển cảnh, hiệu ứng Ken Burns cho ảnh, video stock, thêm phong cách.
-- Kèm Piper / faster-whisper tuỳ chọn trong bộ cài (tải khi cần).
-- Đăng YouTube + Facebook Page, hẹn giờ đăng.
-- Chạy nền ở khay hệ thống (tray), tự khởi động cùng Windows.
+- Adapter **DOCX** (python-docx) và **PDF** (PyMuPDF) — trang scan được **OCR từng trang**;
+  chức năng nhà cung cấp mới **OCR** (Tesseract kèm trong bộ cài Windows với mô hình tiếng Việt,
+  Google Cloud Vision, Azure AI Vision). Markdown kèm ảnh: thư mục, zip hoặc nhiều file.
+- **Duyệt video**: vòng đời Bản nháp → Đã dựng → Chờ duyệt ⇄ Cần sửa → Đã duyệt → Đã lên lịch →
+  Đang đăng → Đã đăng / Lỗi, có lịch sử. Màn Duyệt: trình phát với dải cảnh bấm được, sửa từng
+  cảnh + dựng lại một phần, Duyệt / Yêu cầu sửa kèm ghi chú, lịch sử phiên bản + so sánh.
+  Trang **Thư viện video** có bộ lọc.
+- **Đăng YouTube + Facebook Page** bằng ứng dụng của chính người dùng (OAuth PKCE loopback /
+  Facebook Login trong cửa sổ app), upload resumable / chunked, Reels, thumbnail, phụ đề, danh
+  sách phát, metadata theo nền tảng có gợi ý bằng AI, kiểm tra trước khi đăng + dựng lại đúng
+  tỉ lệ, thử lại / tiếp tục / theo dõi trạng thái, link bài đăng, thông báo.
+- **Hẹn giờ và chạy nền**: lịch đăng (tại máy hoặc trên nền tảng), khay hệ thống (mở / tạm dừng
+  hàng đợi / thoát), đóng cửa sổ xuống khay, tự khởi động cùng Windows, giữ máy không ngủ khi
+  dựng / đăng, hỏi lại các lịch bị lỡ khi mở app, tuỳ chọn task đánh thức máy.
+- Chuyển cảnh **crossfade** và hiệu ứng **Ken Burns** cho ảnh; nút xoá khoá API đã lưu.
+
+Chưa làm (dời sang giai đoạn sau): video stock, thêm phong cách, kèm Piper / faster-whisper
+trong bộ cài.
 
 ## Giai đoạn 3 — Website và quay màn hình
 
@@ -46,5 +59,6 @@
 
 - Đăng TikTok / Instagram / LinkedIn / X.
 - Mô hình chạy cục bộ: Whisper, TTS offline, kèm kiểm tra phần cứng.
-- Avatar, tạo thumbnail, đa ngôn ngữ.
+- Video stock, thêm phong cách, kèm Piper / faster-whisper trong bộ cài (tải khi cần).
+- Avatar, đa ngôn ngữ.
 - Xuất / nhập dự án, tự động cập nhật ứng dụng.
