@@ -1,5 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router";
+import { BrandingSettings } from "../components/BrandingSettings";
 import { JobProgress } from "../components/JobProgress";
+import { ProvidersSettings } from "../components/ProvidersSettings";
 import { Button, Card, ErrorBox } from "../components/ui";
 import { useApi, useBackend } from "../lib/backendContext";
 import type { SystemInfo } from "../lib/types";
@@ -26,16 +29,61 @@ function YesNo({ ok, yes, no }: { ok: boolean; yes: string; no: string }) {
   );
 }
 
+type Tab = "providers" | "branding" | "system";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "providers", label: "Nhà cung cấp" },
+  { id: "branding", label: "Thương hiệu" },
+  { id: "system", label: "Hệ thống" },
+];
+
 export function SettingsPage() {
+  const [params, setParams] = useSearchParams();
+  const tab = (TABS.find((t) => t.id === params.get("tab"))?.id ?? "providers") as Tab;
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Cài đặt</h1>
+        <p className="text-sm text-slate-600">
+          Nhà cung cấp AI, thương hiệu và thông tin hệ thống.
+        </p>
+      </div>
+      <div className="inline-flex rounded-lg bg-slate-100 p-1" role="tablist">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setParams({ tab: t.id })}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium ${
+              tab === t.id
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === "providers" && <ProvidersSettings />}
+      {tab === "branding" && <BrandingSettings />}
+      {tab === "system" && <SystemSettings />}
+    </div>
+  );
+}
+
+function SystemSettings() {
   const api = useApi();
   const { wsConnected } = useBackend();
   const [info, setInfo] = useState<SystemInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [secretValue, setSecretValue] = useState("Mật khẩu thử nghiệm 123");
   const [stored, setStored] = useState<string | null>(null);
-  const [secretResult, setSecretResult] = useState<{ ok: boolean; read_back: string | null } | null>(
-    null,
-  );
+  const [secretResult, setSecretResult] = useState<{
+    ok: boolean;
+    read_back: string | null;
+  } | null>(null);
   const [demoJobId, setDemoJobId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -67,10 +115,6 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Cài đặt</h1>
-        <p className="text-sm text-slate-600">Thông tin hệ thống và công cụ kiểm tra.</p>
-      </div>
       <ErrorBox>{error}</ErrorBox>
 
       <Card title="Hệ thống">
@@ -82,8 +126,8 @@ export function SettingsPage() {
               <YesNo ok yes={`Đang chạy · v${info.version}`} no="" />
             </Row>
             <Row label="Kết nối">
-              {api.info.baseUrl} ({api.info.mode === "tauri" ? "sidecar của ứng dụng" : "trình duyệt / dev"})
-              {" · "}
+              {api.info.baseUrl} (
+              {api.info.mode === "tauri" ? "sidecar của ứng dụng" : "trình duyệt / dev"}){" · "}
               WebSocket: {wsConnected ? "đã kết nối" : "đang kết nối lại"}
             </Row>
             <Row label="Thư mục dữ liệu">
@@ -145,7 +189,10 @@ export function SettingsPage() {
         </div>
       </Card>
 
-      <Card title="Kiểm tra hàng đợi job" actions={<Button onClick={runDemo}>Chạy job demo</Button>}>
+      <Card
+        title="Kiểm tra hàng đợi job"
+        actions={<Button onClick={runDemo}>Chạy job demo</Button>}
+      >
         {demoJobId ? (
           <JobProgress key={demoJobId} jobId={demoJobId} />
         ) : (

@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router";
+import { GenerateVideoCard } from "../components/GenerateVideoCard";
 import { IrViewer } from "../components/IrViewer";
 import { JobProgress } from "../components/JobProgress";
+import { RendersList } from "../components/RendersList";
 import { SchemaForm } from "../components/SchemaForm";
 import { Button, Card, ErrorBox, StatusBadge } from "../components/ui";
 import { useApi } from "../lib/backendContext";
 import { formatBytes, formatDate } from "../lib/format";
+import { JOB_TYPE_LABELS } from "../lib/labels";
 import { defaultsFromSchema, type FormValues } from "../lib/schemaForm";
-import type { Adapter, IRDocument, Job, ProjectDetail } from "../lib/types";
+import type {
+  Adapter,
+  IRDocument,
+  Job,
+  ProjectDetail,
+  RenderRecord,
+  StoryboardSummary,
+} from "../lib/types";
 
 type InputMode = "text" | "file";
 
@@ -45,16 +55,28 @@ export function ProjectDetailPage() {
   const [history, setHistory] = useState<Job[]>([]);
   const [docId, setDocId] = useState<string | null>(null);
   const [doc, setDoc] = useState<IRDocument | null>(null);
-  const [preview, setPreview] = useState<{ id: string; content: string } | null>(null);
+  const [preview, setPreview] = useState<{
+    id: string;
+    content: string;
+  } | null>(null);
+  const [storyboards, setStoryboards] = useState<StoryboardSummary[]>([]);
+  const [renders, setRenders] = useState<RenderRecord[]>([]);
 
   const adapter = useMemo(() => adapters.find((a) => a.id === adapterId), [adapters, adapterId]);
 
   const reload = useCallback(
     () =>
-      Promise.all([api.getProject(projectId), api.listJobs({ projectId, limit: 8 })])
-        .then(([p, jobs]) => {
+      Promise.all([
+        api.getProject(projectId),
+        api.listJobs({ projectId, limit: 8 }),
+        api.listStoryboards(projectId),
+        api.listRenders(projectId),
+      ])
+        .then(([p, jobs, sbs, rs]) => {
           setProject(p);
           setHistory(jobs);
+          setStoryboards(sbs);
+          setRenders(rs);
           return p;
         })
         .catch((e: Error) => {
@@ -69,7 +91,9 @@ export function ProjectDetailPage() {
       if (p?.documents[0]) setDocId(p.documents[0].id);
     });
     api.listJobs({ projectId, limit: 1 }).then((jobs) => {
-      const active = jobs.find((j) => j.status === "queued" || j.status === "running");
+      const active = jobs.find(
+        (j) => j.type === "ingest" && (j.status === "queued" || j.status === "running"),
+      );
       if (active) setJobId(active.id);
     });
   }, [api, projectId, reload]);
@@ -166,7 +190,11 @@ export function ProjectDetailPage() {
   }
 
   if (!project) {
-    return error ? <ErrorBox>{error}</ErrorBox> : <p className="text-sm text-slate-500">Đang tải…</p>;
+    return error ? (
+      <ErrorBox>{error}</ErrorBox>
+    ) : (
+      <p className="text-sm text-slate-500">Đang tải…</p>
+    );
   }
 
   const canAdd = mode === "text" ? text.trim().length > 0 : file !== null;
@@ -276,7 +304,12 @@ export function ProjectDetailPage() {
               <legend className="px-1 text-sm font-semibold text-slate-700">
                 Tuỳ chọn của adapter “{adapter.name}”
               </legend>
-              <SchemaForm schema={adapter.config_schema} value={config} onChange={setConfig} />
+              <SchemaForm
+                schema={adapter.config_schema}
+                value={config}
+                onChange={setConfig}
+                emptyText="Adapter này không có tuỳ chọn."
+              />
             </fieldset>
           )}
 
@@ -371,6 +404,55 @@ export function ProjectDetailPage() {
         )}
       </Card>
 
+      {project.documents.length > 0 && (
+        <GenerateVideoCard projectId={projectId} documents={project.documents} />
+      )}
+
+      {storyboards.length > 0 && (
+        <Card title={`Storyboard (${storyboards.length})`}>
+          <ul className="divide-y divide-slate-100" data-testid="storyboards">
+            {storyboards.map((sb) => (
+              <li key={sb.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
+                <Link
+                  to={`/projects/${projectId}/storyboards/${sb.id}`}
+                  className="font-medium text-indigo-700 hover:underline"
+                >
+                  {sb.title}
+                </Link>
+                <span className="text-xs text-slate-500">
+                  {sb.style} · {sb.aspect} · {sb.scenes} cảnh · {formatDate(sb.updated_at)}
+                </span>
+                <div className="ml-auto flex gap-1">
+                  <Link
+                    to={`/projects/${projectId}/storyboards/${sb.id}`}
+                    className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    Mở trình chỉnh sửa
+                  </Link>
+                  <Button
+                    variant="ghost"
+                    className="text-xs"
+                    onClick={async () => {
+                      if (!window.confirm("Xoá storyboard này?")) return;
+                      await api.deleteStoryboard(sb.id).catch((e: Error) => setError(e.message));
+                      await reload();
+                    }}
+                  >
+                    Xoá
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {renders.length > 0 && (
+        <Card title={`Video đã dựng (${renders.length})`}>
+          <RendersList renders={renders} onDeleted={reload} />
+        </Card>
+      )}
+
       {history.length > 0 && (
         <Card title="Lịch sử job">
           <ul className="space-y-2 text-sm">
@@ -378,7 +460,7 @@ export function ProjectDetailPage() {
               <li key={j.id} className="flex items-center gap-3">
                 <StatusBadge status={j.status} />
                 <span className="font-mono text-xs text-slate-500">{j.id.slice(0, 8)}</span>
-                <span>{j.type}</span>
+                <span>{JOB_TYPE_LABELS[j.type] ?? j.type}</span>
                 <span className="ml-auto text-xs text-slate-500">{formatDate(j.created_at)}</span>
               </li>
             ))}

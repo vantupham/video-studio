@@ -6,6 +6,7 @@ import { useBackend } from "./lib/backendContext";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { StoryboardEditorPage } from "./pages/StoryboardEditorPage";
 
 function Gate() {
   const { status, error, attempts, retry } = useBackend();
@@ -40,6 +41,10 @@ function Gate() {
       <Routes>
         <Route path="/" element={<ProjectsPage />} />
         <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+        <Route
+          path="/projects/:projectId/storyboards/:storyboardId"
+          element={<StoryboardEditorPage />}
+        />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </Layout>

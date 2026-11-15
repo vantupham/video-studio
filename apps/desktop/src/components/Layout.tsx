@@ -29,7 +29,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </span>
           <div>
             <p className="text-sm font-semibold">Video Studio</p>
-            <p className="text-[11px] text-slate-500">Giai đoạn 0</p>
+            <p className="text-[11px] text-slate-500">Giai đoạn 1</p>
           </div>
         </div>
         <nav className="flex flex-col gap-1 px-3">
@@ -41,10 +41,14 @@ export function Layout({ children }: { children: ReactNode }) {
             <span className="size-2 rounded-full bg-emerald-500" /> Backend đang chạy
           </p>
           <p className="flex items-center gap-2">
-            <span className={`size-2 rounded-full ${wsConnected ? "bg-emerald-500" : "bg-amber-500"}`} />
+            <span
+              className={`size-2 rounded-full ${wsConnected ? "bg-emerald-500" : "bg-amber-500"}`}
+            />
             {wsConnected ? "Cập nhật trực tiếp" : "Đang kết nối lại…"}
           </p>
-          {api?.info.mode === "browser" && <p className="text-amber-700">Chế độ trình duyệt (dev)</p>}
+          {api?.info.mode === "browser" && (
+            <p className="text-amber-700">Chế độ trình duyệt (dev)</p>
+          )}
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">
