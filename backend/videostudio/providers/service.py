@@ -88,6 +88,8 @@ SEED_INSTANCES: list[dict[str, Any]] = [
     {"type": "mock_tts", "name": "Giọng giả lập (offline)", "default": False},
     {"type": "proportional", "name": "Ước lượng theo âm tiết", "default": True},
     {"type": "mock_media", "name": "Ảnh gradient (offline)", "default": True},
+    {"type": "tesseract", "name": "Tesseract trên máy", "default": True},
+    {"type": "mock_ocr", "name": "OCR giả lập (offline)", "default": False},
 ]
 
 
@@ -348,10 +350,16 @@ class ProviderService:
     # ------------------------------------------------------------------ seeding
 
     def seed_defaults(self) -> None:
+        """First run: create every seed instance. Later runs: seed capabilities that have
+        no instance yet (e.g. OCR added by an update), leaving user choices alone."""
         with self.session_factory() as s:
-            if s.scalar(select(ProviderInstance.id).limit(1)):
-                return
+            existing = set(s.scalars(select(ProviderInstance.capability).distinct()))
+        seeded = 0
         for spec in SEED_INSTANCES:
-            if spec["type"] in self.providers:
-                self.create(spec["type"], spec["name"], {}, make_default=spec["default"])
-        log.info("Seeded default provider instances")
+            provider = self.providers.get(spec["type"])
+            if provider is None or provider.capability in existing:
+                continue
+            self.create(spec["type"], spec["name"], {}, make_default=spec["default"])
+            seeded += 1
+        if seeded:
+            log.info("Seeded %d default provider instance(s)", seeded)

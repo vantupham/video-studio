@@ -55,7 +55,8 @@ def test_types_endpoint(client: TestClient, auth):
             "faster_whisper", "proportional", "pexels"} <= set(ids)
     assert ids["openai"]["secret_fields"] == ["api_key"]
     assert ids["openai"]["config_schema"]["properties"]["api_key"]["x-secret"] is True
-    assert [c["id"] for c in r["capabilities"]] == ["llm", "tts", "alignment", "media"]
+    assert [c["id"] for c in r["capabilities"]] == ["llm", "tts", "alignment", "media", "ocr"]
+    assert {"tesseract", "google_vision", "azure_vision", "mock_ocr"} <= set(ids)
     only_tts = client.get("/providers/types?capability=tts", headers=auth).json()["types"]
     assert {t["capability"] for t in only_tts} == {"tts"}
 

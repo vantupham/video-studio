@@ -13,6 +13,9 @@ from .base import (
     MediaItem,
     MediaProvider,
     ModelInfo,
+    OCRLine,
+    OCRProvider,
+    OCRResult,
     ProviderContext,
     TestResult,
     TTSAudio,
@@ -24,9 +27,9 @@ from .base import (
 
 
 def builtin_providers() -> list[BaseProvider]:
-    from . import alignment, llm, media, tts
+    from . import alignment, llm, media, ocr, tts
 
-    return [cls() for mod in (llm, tts, alignment, media) for cls in mod.PROVIDERS]
+    return [cls() for mod in (llm, tts, alignment, media, ocr) for cls in mod.PROVIDERS]
 
 
 __all__ = [
@@ -40,6 +43,9 @@ __all__ = [
     "MediaItem",
     "MediaProvider",
     "ModelInfo",
+    "OCRLine",
+    "OCRProvider",
+    "OCRResult",
     "ProviderContext",
     "TTSAudio",
     "TTSProvider",

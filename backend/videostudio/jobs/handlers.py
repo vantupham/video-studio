@@ -17,6 +17,7 @@ from videostudio.config import Settings
 from videostudio.db import IRDocument, Project, Source, new_id
 from videostudio.pipeline.service import PipelineService
 from videostudio.plugins import JobContext, PluginRegistry, SourceRef
+from videostudio.providers.service import ProviderService
 
 from .queue import JobQueue, JobSnapshot
 
@@ -45,8 +46,14 @@ def source_ref_for(source: Source, settings: Settings) -> SourceRef:
 
 
 def make_ingest_job(
-    session_factory: sessionmaker[Session], settings: Settings, registry: PluginRegistry
+    session_factory: sessionmaker[Session], settings: Settings, registry: PluginRegistry,
+    providers: ProviderService | None = None,
 ):
+    def resolve(capability: str, instance_id: str | None):
+        if providers is None:
+            raise RuntimeError("providers unavailable")
+        return providers.resolve(capability, {"instance_id": instance_id or None})
+
     async def ingest_job(job: JobSnapshot, ctx: JobContext) -> dict[str, Any]:
         if not job.project_id:
             raise ValueError("ingest job requires project_id")
@@ -76,7 +83,8 @@ def make_ingest_job(
                 ctx.report_progress(lo + (hi - lo) * pct / 100,
                                     f"{name}: {msg}" if msg else name)
 
-            sub_ctx = replace(ctx, config=dict(source.config or {}), progress_cb=sub_progress)
+            sub_ctx = replace(ctx, config=dict(source.config or {}), progress_cb=sub_progress,
+                              resolve_provider=resolve)
             ir = await adapter.ingest(source_ref_for(source, settings), sub_ctx)
             ctx.check_cancelled()
 
@@ -139,7 +147,8 @@ def register_builtin_handlers(
     pipeline: PipelineService | None = None,
 ) -> None:
     queue.register("demo", demo_job)
-    queue.register("ingest", make_ingest_job(session_factory, settings, registry))
+    queue.register("ingest", make_ingest_job(session_factory, settings, registry,
+                                             pipeline.providers if pipeline else None))
     if pipeline is not None:
         for job_type, handler in make_pipeline_jobs(pipeline).items():
             queue.register(job_type, handler)

@@ -58,6 +58,13 @@ class JobContext:
     progress_cb: Callable[[int, str | None], None] | None = None
     log_cb: Callable[[str, str], None] | None = None
     cancelled_cb: Callable[[], bool] | None = None
+    # (capability, instance id or None for the default) -> ResolvedProvider
+    resolve_provider: Callable[[str, str | None], Any] | None = None
+
+    def provider(self, capability: str, instance_id: str | None = None) -> Any:
+        if self.resolve_provider is None:
+            raise RuntimeError(f"No provider resolver available for '{capability}'")
+        return self.resolve_provider(capability, instance_id)
 
     def report_progress(self, percent: float, message: str | None = None) -> None:
         if self.progress_cb:

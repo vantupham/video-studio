@@ -15,13 +15,14 @@ from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
-Capability = Literal["llm", "tts", "alignment", "media"]
-CAPABILITIES: tuple[str, ...] = ("llm", "tts", "alignment", "media")
+Capability = Literal["llm", "tts", "alignment", "media", "ocr"]
+CAPABILITIES: tuple[str, ...] = ("llm", "tts", "alignment", "media", "ocr")
 CAPABILITY_LABELS = {
     "llm": "Mô hình ngôn ngữ (LLM)",
     "tts": "Chuyển văn bản thành giọng nói (TTS)",
     "alignment": "Căn thời gian phụ đề",
     "media": "Ảnh / video minh hoạ",
+    "ocr": "Nhận dạng chữ (OCR)",
 }
 
 
@@ -195,6 +196,38 @@ class MediaProvider(BaseProvider):
 
     @abstractmethod
     async def download(self, ctx: ProviderContext, item: MediaItem, dest: Path) -> Path: ...
+
+
+class OCRLine(BaseModel):
+    text: str
+    # Bounding box in pixels of the recognised image: x0, y0, x1, y1.
+    bbox: tuple[float, float, float, float] = (0, 0, 0, 0)
+    confidence: float | None = None
+    block: int = 0  # lines with the same block number belong to one paragraph
+
+    @property
+    def height(self) -> float:
+        return max(0.0, self.bbox[3] - self.bbox[1])
+
+
+class OCRResult(BaseModel):
+    lines: list[OCRLine] = Field(default_factory=list)
+    width: int = 0
+    height: int = 0
+    engine: str = ""
+
+    @property
+    def text(self) -> str:
+        return "\n".join(line.text for line in self.lines)
+
+
+class OCRProvider(BaseProvider):
+    capability: ClassVar[Capability] = "ocr"
+
+    @abstractmethod
+    async def recognize(self, ctx: ProviderContext, image_path: Path, *, lang: str
+                        ) -> OCRResult:
+        """Recognise the text of one page image. ``lang`` is a BCP-47 tag (``vi``)."""
 
 
 @dataclass
