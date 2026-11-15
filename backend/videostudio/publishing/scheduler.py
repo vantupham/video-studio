@@ -60,6 +60,7 @@ class Scheduler:
         self._wake_for: datetime | None = None
         self._last_expiry_check: datetime | None = None
         self.last_tick: dict[str, Any] = {}
+        self._tick_lock = threading.Lock()
 
     def start(self) -> None:
         if self._thread:
@@ -93,6 +94,10 @@ class Scheduler:
         return asyncio.run(self.tick_async(now))
 
     async def tick_async(self, now: datetime | None = None) -> dict[str, Any]:
+        with self._tick_lock:
+            return await self._tick(now)
+
+    async def _tick(self, now: datetime | None = None) -> dict[str, Any]:
         now = now or utcnow()
         prefs = desktop_prefs(self.sf)
         out: dict[str, Any] = {"ts": now.isoformat(), "started": [], "polled": {}}

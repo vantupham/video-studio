@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from videostudio.config import Settings
@@ -885,16 +885,21 @@ class PublishService:
     def due(self, now: datetime | None = None) -> list[str]:
         """Local schedules and retries whose time has come → queued + job."""
         now = now or utcnow()
-        ids = []
-        with self.sf.begin() as s:
-            rows = s.scalars(select(Publication).where(
+        with self.sf() as s:
+            rows = list(s.execute(select(Publication.id, Publication.status).where(
                 ((Publication.status == "scheduled") & (Publication.schedule_mode == "local")
                  & (Publication.scheduled_at <= now))
-                | ((Publication.status == "retry_wait") & (Publication.next_attempt_at <= now))))
-            for pub in rows:
-                pub.status = "queued"
-                ids.append(pub.id)
-        for pid in ids:
+                | ((Publication.status == "retry_wait") & (Publication.next_attempt_at <= now))
+            )).all())
+        ids = []
+        for pid, status in rows:
+            with self.sf.begin() as s:
+                res = s.execute(update(Publication).where(Publication.id == pid,
+                                                          Publication.status == status)
+                                .values(status="queued"))
+                if res.rowcount != 1:
+                    continue
+            ids.append(pid)
             self._enqueue_if_queued(pid)
             self._emit(pid)
         return ids
