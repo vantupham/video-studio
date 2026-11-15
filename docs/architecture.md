@@ -88,7 +88,11 @@ Bảng: `projects`, `sources`, `ir_documents`, `jobs`, `job_logs`.
 - Huỷ: job đang chờ bị huỷ ngay; job đang chạy nhận yêu cầu huỷ qua `ctx.check_cancelled()`.
 - Tiến độ được đẩy tới UI qua WebSocket `/ws/jobs?token=…` (trình duyệt không gửi được header
   khi mở WebSocket nên token đi qua query string).
-- Loại job hiện có: `ingest` (chạy adapter → Content IR) và `demo` (ngủ + báo tiến độ).
+- Loại job: `ingest` (adapter → Content IR), `script` (LLM → storyboard), `scene_regen`
+  (viết lại một cảnh), `tts` (đọc các cảnh), `render` (dựng video) và `demo`.
+- Job nhiều bước ghi danh sách bước vào `payload.steps` (`{id, label, start, end}` theo %)
+  để UI hiển thị bước nào đang chạy. Lỗi từ nhà cung cấp được ghi thành thông báo tiếng Việt
+  ngắn gọn (không traceback, không chứa khoá).
 
 ## Plugin và Content IR
 
@@ -105,19 +109,70 @@ JSON Schema là nguồn chuẩn; backend có model Pydantic tương ứng, UI c�
 
 Điểm mở rộng (`backend/videostudio/plugins/base.py`):
 
-| Giao diện      | Phương thức chính                                          | Giai đoạn 0 |
-|----------------|------------------------------------------------------------|-------------|
-| `InputAdapter` | `id`, `can_handle(source)`, `config_schema()`, `ingest()`   | `script`, `markdown` |
-| `LLMProvider`  | `complete()`, `stream()`                                    | chỉ interface |
-| `TTSProvider`  | `list_voices()`, `synthesize()` → audio + timing từng từ    | chỉ interface |
-| `Renderer`     | `render()`                                                  | chỉ interface |
-| `Publisher`    | `constraints()`, `publish()`, `status()`                    | chỉ interface |
+| Giao diện           | Phương thức chính                                          | Hiện có |
+|---------------------|------------------------------------------------------------|---------|
+| `InputAdapter`      | `id`, `can_handle(source)`, `config_schema()`, `ingest()`   | `script`, `markdown` |
+| `LLMProvider`       | `complete()`, `list_models()`, `test_connection()`          | 6 (xem `docs/providers.md`) |
+| `TTSProvider`       | `list_voices()`, `synthesize()` → audio + timing từng từ    | 8 |
+| `AlignmentProvider` | `align()` → timing từng từ                                  | 3 |
+| `MediaProvider`     | `search()`, `download()`                                    | 2 |
+| `Renderer`          | `render(plan, ctx)` → `RenderResult`                        | `ffmpeg` |
+| `Publisher`         | `constraints()`, `publish()`, `status()`                    | chỉ interface |
 
 `config_schema()` trả về JSON Schema để UI tự sinh form cấu hình.
 
 Plugin được nạp từ: (1) registry dựng sẵn, (2) Python entry point nhóm `videostudio.plugins`,
 (3) thư mục `plugins/` trong data dir (`<tên>.py` hoặc `<tên>/plugin.py`). Mỗi plugin có hàm
 `register(registry)`; plugin lỗi chỉ bị ghi log, không làm hỏng ứng dụng.
+
+## Nhà cung cấp (providers)
+
+`backend/videostudio/providers/` — chi tiết cho người dùng ở [`providers.md`](providers.md).
+
+- **Loại** nhà cung cấp là lớp Python (đăng ký trong plugin registry); **bản** (instance) là
+  một dòng trong bảng `provider_instances` (`capability`, `type`, `name`, `config` không bí
+  mật, `is_default`) + các khoá trong SecretStore với tên `provider:<id>:<trường>`.
+- `ProviderService`: CRUD, kiểm tra, đặt mặc định (một mặc định / chức năng), dựng
+  `ProviderContext` (cấu hình + khoá đã giải mã, chỉ trong bộ nhớ) và `resolve(cap, *lựa chọn)`
+  — storyboard → dự án → mặc định. Lần chạy đầu tạo sẵn các nhà cung cấp không cần khoá.
+- Trường bí mật đánh dấu `x-secret` trong `config_schema()`; khi sửa, giá trị bỏ trống hoặc
+  dạng `••••…` giữ nguyên khoá cũ. API chỉ trả dạng che. Thông báo lỗi upstream được lọc bỏ
+  chuỗi giống khoá.
+- HTTP dùng `httpx` qua `errors.send()` → `ProviderAuthError` (401/403), `ProviderQuotaError`
+  (402/429/quota), `ProviderTimeoutError`, `ProviderUnavailableError`…
+- LLM luôn trả JSON theo schema (`llm_json.complete_json`): schema được đưa vào prompt + chế độ
+  JSON của từng dịch vụ, kiểm tra bằng Pydantic, sửa lại một lần với danh sách lỗi.
+
+## Pipeline tạo video
+
+`backend/videostudio/pipeline/`:
+
+```
+Content IR ──script_writer──▶ Storyboard ──tts_step──▶ âm thanh + timing từng từ
+                (LLM/Jinja)    (sửa được)    (cache)          │
+                                                              ▼
+      outputs/<tên>.mp4/.srt/.vtt/.ass/.jpg ◀──renderer_ffmpeg── subtitles + cards
+```
+
+- **Storyboard** (`models.py`, JSON Schema `packages/ir-schema/storyboard.schema.json`, kiểu TS
+  `ts/storyboard.ts`): `{version, title, language, style, aspect, scenes[]}`, mỗi cảnh
+  `{id, narration, visual{type: title_card|text_card|image|stock|solid, …}, overlays,
+  duration: số giây | "auto"}`. Test giữ ba nơi khớp nhau.
+- **Phong cách** (`styles_builtin/<id>/style.yaml` + `prompts/{system,script,scene}.j2`):
+  khung hình, màu, font, cỡ chữ, chế độ phụ đề, nhịp đọc. Người dùng ghi đè bằng thư mục
+  `styles/<id>/` trong data dir (file nào có thì dùng file đó, `style.yaml` được trộn).
+- **TTS**: cache theo SHA-256 của (nhà cung cấp, giọng, cấu hình ảnh hưởng âm thanh, ngôn ngữ,
+  văn bản) trong `cache/tts/`. Timing: từ TTS → `AlignmentProvider` mặc định → ước lượng âm
+  tiết; luôn được khớp lại vào từ gốc (`snap_to_text`).
+- **Phụ đề**: cắt dòng theo độ rộng và dấu câu; 16:9 dạng dòng, 9:16 tô sáng từng từ (ASS
+  `\c` + phóng nhẹ). SRT ghi UTF-8 có BOM (Windows Media Player / Premiere đọc đúng dấu).
+- **Renderer FFmpeg**: mỗi cảnh = một đoạn video câm (thẻ PNG vẽ bằng Pillow, libx264
+  ultrafast, cache theo nội dung trong `work/segments`) + WAV 48 kHz; nối bằng concat demuxer;
+  lần cuối: burn phụ đề (`subtitles=…:fontsdir=…`), logo, nhạc nền với `sidechaincompress`
+  (tự nhỏ lại khi có lời), thử encoder phần cứng (NVENC/QSV/AMF) rồi lùi về libx264. Chế độ
+  xem nhanh: nửa độ phân giải, ≤ 24 fps, chỉ libx264. Huỷ job sẽ dừng tiến trình ffmpeg.
+- Sửa một cảnh chỉ xoá âm thanh của cảnh đó; các cảnh khác dùng lại cache âm thanh và đoạn
+  video.
 
 ## Tiếng Việt
 
@@ -141,7 +196,7 @@ Plugin được nạp từ: (1) registry dựng sẵn, (2) Python entry point nh
 `probe()` trả JSON của ffprobe; `detect_h264_encoders()` / `pick_h264_encoder()` phát hiện
 NVENC / QSV / AMF (thử encode 1 frame) và lùi về `libx264`.
 
-## API (giai đoạn 0)
+## API
 
 Mọi request cần header `Authorization: Bearer <token>` (hoặc `X-VideoStudio-Token`).
 
@@ -162,3 +217,22 @@ Mọi request cần header `Authorization: Bearer <token>` (hoặc `X-VideoStudi
 | POST | `/jobs/{id}/cancel`, `/jobs/demo` | huỷ job / tạo job demo |
 | GET/POST | `/secrets/selftest` | kiểm tra SecretStore |
 | WS | `/ws/jobs?token=…` | luồng sự kiện job |
+| GET | `/providers/types` | các loại nhà cung cấp kèm `config_schema` |
+| GET/POST | `/providers` | liệt kê bản (`{instances, defaults}`) / tạo |
+| GET/PATCH/DELETE | `/providers/{id}` | chi tiết / sửa / xoá (khoá trả dạng `••••1234`) |
+| POST | `/providers/test`, `/providers/{id}/test` | kiểm tra cấu hình chưa lưu / đã lưu |
+| POST | `/providers/{id}/default` | đặt mặc định |
+| GET | `/providers/{id}/models`, `/providers/{id}/voices?lang=` | danh sách model / giọng |
+| POST | `/providers/{id}/sample` | đọc thử (`{text?, voice?, lang?}` → `{url}`) |
+| GET | `/styles`, `/styles/{id}`, `/storyboard/schema`, `/generation/defaults` | phong cách, schema, mặc định |
+| GET/PUT | `/projects/{id}/settings` | cài đặt tạo video của dự án |
+| POST/GET | `/projects/{id}/storyboards` | tạo (job `script`) / liệt kê |
+| GET/PUT/DELETE | `/storyboards/{id}` | xem / sửa (`{data, settings}`) / xoá |
+| POST | `/storyboards/{id}/scenes/{scene}/regenerate` | viết lại một cảnh (`{instruction}`) |
+| POST | `/storyboards/{id}/tts`, `/storyboards/{id}/render` | đọc các cảnh / dựng (`{preview}`) |
+| GET | `/projects/{id}/renders`, `/renders/{id}` | bản xuất (kèm URL phát) |
+| DELETE | `/renders/{id}` | xoá bản xuất và file |
+| POST | `/renders/{id}/open-folder` | mở thư mục chứa video |
+| POST/GET/DELETE | `/assets` | ảnh / logo / nhạc tải lên |
+| GET/PUT | `/settings/branding` | logo, mở đầu / kết thúc |
+| GET | `/media/{đường dẫn}?k=…` | phát file trong data dir (hỗ trợ Range) — khoá `k` suy ra từ token, chỉ thư mục `projects/`, `cache/`, `assets/` |
