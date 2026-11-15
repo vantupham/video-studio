@@ -26,6 +26,11 @@ def _list_items(items: list[Any], depth: int = 0) -> list[str]:
     return out
 
 
+def _as_sentence(text: str) -> str:
+    text = text.strip()
+    return text if not text or text[-1] in ".!?…:;" else text + "."
+
+
 def ir_sections(ir: ContentIR, image_resolver=None) -> list[dict[str, Any]]:
     """Flatten the IR into ``{id, heading, text, bullets, images, block_ids}`` sections."""
     sections = []
@@ -42,13 +47,14 @@ def ir_sections(ir: ContentIR, image_resolver=None) -> list[dict[str, Any]]:
             if kind == "heading" and not heading:
                 heading = block.text
             elif kind == "heading":
-                paragraphs.append(block.text.rstrip(".") + ".")
+                if block.text.strip() != (heading or "").strip():
+                    paragraphs.append(_as_sentence(block.text))
             elif kind == "paragraph":
                 paragraphs.append(block.text)
             elif kind == "list":
                 items = _list_items(block.items)
                 bullets.extend(i.strip() for i in items)
-                paragraphs.append(". ".join(i.strip().rstrip(".") for i in items) + ".")
+                paragraphs.append(" ".join(_as_sentence(i) for i in items))
             elif kind == "table":
                 rows = [", ".join(f"{h}: {c}" for h, c in zip(block.header, r, strict=False))
                         if block.header else ", ".join(r) for r in block.rows]

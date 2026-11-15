@@ -194,6 +194,21 @@ async def test_use_as_is_keeps_text_verbatim():
     assert all(len(s.narration.split()) <= max_words for s in sb.scenes)
 
 
+def test_ir_sections_punctuation_and_repeated_heading():
+    ir = ContentIR.model_validate({
+        "title": "Uống nước", "source": {"type": "markdown", "uri": "a.md"},
+        "sections": [{"id": "a", "title": "Cần uống bao nhiêu?", "blocks": [
+            {"kind": "heading", "level": 2, "text": "Cần uống bao nhiêu?"},
+            {"kind": "heading", "level": 3, "text": "Mẹo nhỏ"},
+            {"kind": "list", "ordered": False,
+             "items": [{"text": "Uống đủ nước!"}, {"text": "Hạn chế nước ngọt"}]},
+        ]}],
+    })
+    [section] = ir_sections(ir)
+    assert section["heading"] == "Cần uống bao nhiêu?"
+    assert section["text"] == "Mẹo nhỏ. Uống đủ nước! Hạn chế nước ngọt."
+
+
 async def test_regenerate_single_scene_only_changes_that_scene():
     sb = Storyboard(title="T", scenes=[
         Scene(id="s1", narration="Câu một. Câu hai.", visual=Visual(type="title_card",
