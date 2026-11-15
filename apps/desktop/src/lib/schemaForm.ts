@@ -66,11 +66,18 @@ export function missingRequired(
     const prop = schema.properties?.[key];
     if (!prop) continue;
     const v = values[key];
+    if (v === CLEAR_SECRET) {
+      missing.push(prop.title ?? key);
+      continue;
+    }
     const empty = v === undefined || v === null || v === "";
     if (empty && !(isSecret(prop) && storedSecrets[key])) missing.push(prop.title ?? key);
   }
   return missing;
 }
+
+/** Form value meaning "delete the stored secret" (sent to the API as ""). */
+export const CLEAR_SECRET = "\u0000clear";
 
 /** Payload for the API: drop empty secret inputs so stored secrets are kept. */
 export function toPayload(schema: JSONSchemaObject, values: FormValues): FormValues {
@@ -78,6 +85,10 @@ export function toPayload(schema: JSONSchemaObject, values: FormValues): FormVal
   for (const [key, v] of Object.entries(values)) {
     const prop = schema.properties?.[key];
     if (!prop) continue;
+    if (isSecret(prop) && v === CLEAR_SECRET) {
+      out[key] = "";
+      continue;
+    }
     if (isSecret(prop) && (v === undefined || v === "")) continue;
     if (v === undefined) continue;
     out[key] = v;

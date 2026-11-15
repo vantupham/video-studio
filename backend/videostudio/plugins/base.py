@@ -8,11 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
-
-from pydantic import BaseModel, Field
 
 from videostudio.ir import ContentIR
 from videostudio.pipeline.render_types import Renderer, RenderPlan, RenderResult
@@ -58,6 +55,13 @@ class JobContext:
     progress_cb: Callable[[int, str | None], None] | None = None
     log_cb: Callable[[str, str], None] | None = None
     cancelled_cb: Callable[[], bool] | None = None
+    # (capability, instance id or None for the default) -> ResolvedProvider
+    resolve_provider: Callable[[str, str | None], Any] | None = None
+
+    def provider(self, capability: str, instance_id: str | None = None) -> Any:
+        if self.resolve_provider is None:
+            raise RuntimeError(f"No provider resolver available for '{capability}'")
+        return self.resolve_provider(capability, instance_id)
 
     def report_progress(self, percent: float, message: str | None = None) -> None:
         if self.progress_cb:
@@ -96,49 +100,25 @@ class InputAdapter(Protocol):
 # --------------------------------------------------------------------------------------
 # Providers (LLM / TTS / alignment / media) live in ``videostudio.providers``; renderers
 # in ``videostudio.pipeline.render_types``. They are re-exported here for plugin authors.
-# Publishers are still an interface only (phase 3).
+# Publishers: models and the base class live in ``videostudio.publishing.base``
+# (``Publisher``, ``PublishConstraints``, ``PublishRequest``, ``PublishResult``,
+# ``PublishContext``). This protocol is what the registry checks.
 # --------------------------------------------------------------------------------------
-
-
-class PublishConstraints(BaseModel):
-    max_duration_s: float | None = None
-    max_file_size_mb: float | None = None
-    aspect_ratios: list[str] = Field(default_factory=list)
-    max_title_len: int | None = None
-    max_description_len: int | None = None
-    supports_scheduling: bool = False
-
-
-class PublishRequest(BaseModel):
-    video_path: Path
-    title: str
-    description: str = ""
-    tags: list[str] = Field(default_factory=list)
-    thumbnail_path: Path | None = None
-    scheduled_at: datetime | None = None
-    privacy: Literal["public", "unlisted", "private"] = "private"
-    options: dict[str, Any] = Field(default_factory=dict)
-
-
-class PublishStatus(BaseModel):
-    remote_id: str
-    state: Literal["uploading", "processing", "scheduled", "published", "failed"]
-    url: str | None = None
-    detail: str | None = None
 
 
 @runtime_checkable
 class Publisher(Protocol):
     id: str
     name: str
+    platform: str
 
-    def config_schema(self) -> dict[str, Any]: ...
+    def constraints(self, options: dict[str, Any] | None = None) -> Any: ...
 
-    def constraints(self) -> PublishConstraints: ...
+    def metadata_schema(self) -> dict[str, Any]: ...
 
-    async def publish(self, request: PublishRequest, ctx: JobContext) -> PublishStatus: ...
+    async def publish(self, req: Any, pctx: Any) -> Any: ...
 
-    async def status(self, remote_id: str) -> PublishStatus: ...
+    async def status(self, remote_id: str, pctx: Any) -> Any: ...
 
 
 __all__ = [
@@ -150,9 +130,6 @@ __all__ = [
     "JobContext",
     "LLMProvider",
     "MediaProvider",
-    "PublishConstraints",
-    "PublishRequest",
-    "PublishStatus",
     "Publisher",
     "RenderPlan",
     "RenderResult",

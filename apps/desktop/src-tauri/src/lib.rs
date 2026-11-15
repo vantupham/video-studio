@@ -8,6 +8,10 @@
 //!
 //! Dev mode: set `VIDEOSTUDIO_BACKEND_URL` (+ optional `VIDEOSTUDIO_BACKEND_TOKEN`)
 //! to use a backend started separately (with auto-reload) instead of the sidecar.
+//!
+//! Tray, close-to-tray, autostart and notifications live in [`desktop`].
+
+mod desktop;
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
@@ -18,7 +22,9 @@ use std::time::Duration;
 
 use rand::{distributions::Alphanumeric, Rng};
 use serde::Serialize;
-use tauri::{AppHandle, Manager, RunEvent, State};
+use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
+
+use desktop::{Desktop, AUTOSTART_ARG};
 
 const PORT_PREFIX: &str = "VIDEOSTUDIO_PORT=";
 const READY_TIMEOUT: Duration = Duration::from_secs(90);
@@ -30,7 +36,7 @@ struct BackendInfo {
 }
 
 #[derive(Default)]
-struct Backend {
+pub(crate) struct Backend {
     info: Mutex<Option<Result<BackendInfo, String>>>,
     ready: Condvar,
     child: Mutex<Option<Child>>,
@@ -45,7 +51,7 @@ impl Backend {
         }
     }
 
-    fn wait_info(&self, timeout: Duration) -> Result<BackendInfo, String> {
+    pub(crate) fn wait_info(&self, timeout: Duration) -> Result<BackendInfo, String> {
         let guard = self.info.lock().unwrap();
         let (guard, _) = self
             .ready
@@ -131,6 +137,10 @@ fn spawn_sidecar(app: &AppHandle, backend: Arc<Backend>) -> Result<(), String> {
     if ffmpeg_dir.is_dir() {
         cmd.env("VIDEOSTUDIO_FFMPEG_DIR", ffmpeg_dir);
     }
+    let tesseract_dir = resource_dir.join("tesseract");
+    if tesseract_dir.is_dir() {
+        cmd.env("VIDEOSTUDIO_TESSERACT_DIR", tesseract_dir);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -167,9 +177,51 @@ pub fn run() {
     let setup_backend = backend.clone();
 
     let app = tauri::Builder::default()
+        // Must be the first plugin: a second launch (e.g. autostart while running)
+        // just brings the existing window forward.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            desktop::show_main(app);
+        }))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg(AUTOSTART_ARG)
+                .build(),
+        )
         .manage(backend.clone())
-        .invoke_handler(tauri::generate_handler![backend_info])
+        .manage(Desktop::default())
+        .invoke_handler(tauri::generate_handler![
+            backend_info,
+            desktop::apply_desktop_prefs,
+            desktop::set_tray_paused,
+            desktop::desktop_notify,
+            desktop::open_external,
+            desktop::facebook_login,
+        ])
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                if desktop::close_to_tray(&app.state::<Desktop>()) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(move |app| {
+            let prefs = desktop::load_prefs(app.handle());
+            let autostarted = std::env::args().any(|a| a == AUTOSTART_ARG);
+            if autostarted && prefs.start_minimized {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.hide();
+                }
+            }
+            *app.state::<Desktop>().prefs.lock().unwrap() = prefs;
+            if let Err(err) = desktop::setup_tray(app.handle()) {
+                eprintln!("tray icon unavailable: {err}");
+            }
             if let Ok(url) = std::env::var("VIDEOSTUDIO_BACKEND_URL") {
                 let token = std::env::var("VIDEOSTUDIO_BACKEND_TOKEN")
                     .unwrap_or_else(|_| "dev-token".into());

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from videostudio.ir import ContentIR
 from videostudio.providers.base import ChatMessage, ResolvedProvider
@@ -80,8 +81,10 @@ def make_image_resolver(data_dir: Path, source_dirs: list[Path]):
     def resolve(src: str) -> str | None:
         if re.match(r"^[a-z]+://", src, re.I) or src.startswith("data:"):
             return None
-        for base in source_dirs:
-            candidate = (base / src).resolve()
+        # markdown-it percent-encodes spaces and non-ASCII characters in link targets
+        names = dict.fromkeys([src, unquote(src)])
+        for base, name in ((b, n) for b in source_dirs for n in names):
+            candidate = (base / name).resolve()
             if candidate.is_file() and candidate.suffix.lower() in IMAGE_EXTS:
                 try:
                     return candidate.relative_to(data_dir.resolve()).as_posix()

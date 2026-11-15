@@ -66,6 +66,10 @@ EDGE_VI_VOICES = [
 ]
 
 
+EDGE_ATTEMPTS = 4
+EDGE_RETRY_DELAY_S = 1.0
+
+
 class EdgeTTS(TTSProvider):
     id: ClassVar[str] = "edge_tts"
     name: ClassVar[str] = "Microsoft Edge TTS (miễn phí)"
@@ -112,33 +116,48 @@ class EdgeTTS(TTSProvider):
         import edge_tts
 
         voice = voice or self.default_voice(ctx)
-        communicate = edge_tts.Communicate(
-            text, voice, rate=str(ctx.get("rate", "+0%")), pitch=str(ctx.get("pitch", "+0Hz")),
-            boundary="WordBoundary", receive_timeout=int(ctx.timeout))
-        words: list[WordTiming] = []
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(out_path, "wb") as fh:
-                async for chunk in communicate.stream():
-                    if chunk["type"] == "audio":
-                        fh.write(chunk["data"])
-                    elif chunk["type"] == "WordBoundary":
-                        start = chunk["offset"] / 1e7
-                        words.append(WordTiming(text=chunk["text"], start=start,
-                                                end=start + chunk["duration"] / 1e7))
-        except TimeoutError as exc:
-            raise ProviderTimeoutError(f"{self.name}: quá thời gian chờ", provider=self.id) \
-                from exc
-        except Exception as exc:
-            if isinstance(exc, ProviderError):
-                raise
-            raise ProviderUnavailableError(
-                f"{self.name}: không tổng hợp được giọng nói ({type(exc).__name__}: {exc})",
-                provider=self.id) from exc
+        # The free service intermittently answers a valid request with no audio (or drops the
+        # websocket); the same request usually succeeds a moment later.
+        transient = (edge_tts.exceptions.NoAudioReceived,
+                     edge_tts.exceptions.WebSocketError, ConnectionError, OSError)
+        for attempt in range(EDGE_ATTEMPTS):
+            try:
+                words = await self._stream(ctx, edge_tts, text, voice, out_path)
+                break
+            except TimeoutError as exc:
+                raise ProviderTimeoutError(f"{self.name}: quá thời gian chờ",
+                                           provider=self.id) from exc
+            except Exception as exc:
+                if isinstance(exc, ProviderError):
+                    raise
+                if isinstance(exc, transient) and attempt + 1 < EDGE_ATTEMPTS:
+                    log.info("edge-tts %s, retrying (%d/%d)", type(exc).__name__, attempt + 1,
+                             EDGE_ATTEMPTS)
+                    await asyncio.sleep(EDGE_RETRY_DELAY_S * 2 ** attempt)
+                    continue
+                raise ProviderUnavailableError(
+                    f"{self.name}: không tổng hợp được giọng nói ({type(exc).__name__}: {exc})",
+                    provider=self.id) from exc
         if out_path.stat().st_size == 0:
             raise ProviderUnavailableError(f"{self.name}: dịch vụ không trả âm thanh",
                                            provider=self.id)
         return TTSAudio(path=out_path, duration_s=media_duration(out_path), words=words)
+
+    async def _stream(self, ctx, edge_tts, text, voice, out_path) -> list[WordTiming]:
+        communicate = edge_tts.Communicate(
+            text, voice, rate=str(ctx.get("rate", "+0%")), pitch=str(ctx.get("pitch", "+0Hz")),
+            boundary="WordBoundary", receive_timeout=int(ctx.timeout))
+        words: list[WordTiming] = []
+        with open(out_path, "wb") as fh:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    fh.write(chunk["data"])
+                elif chunk["type"] == "WordBoundary":
+                    start = chunk["offset"] / 1e7
+                    words.append(WordTiming(text=chunk["text"], start=start,
+                                            end=start + chunk["duration"] / 1e7))
+        return words
 
     async def test_connection(self, ctx):
         return await _sample(self, ctx)

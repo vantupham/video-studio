@@ -14,11 +14,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 
-from videostudio.db import Asset, Project, Render, utcnow
+from videostudio.db import Asset, Project, Publication, Render, utcnow
 from videostudio.db import Storyboard as StoryboardRow
 from videostudio.media.ffmpeg import CREATE_NO_WINDOW
 from videostudio.pipeline.models import GenerationSettings, storyboard_json_schema
 from videostudio.pipeline.service import RENDER_STEPS, SCRIPT_STEPS
+from videostudio.review import lifecycle
 from videostudio.textutil import safe_filename
 
 from .media import media_url
@@ -138,6 +139,8 @@ class RegenerateScene(BaseModel):
 
 class RenderRequest(BaseModel):
     preview: bool = False
+    # Different from the storyboard's aspect → a variant render (e.g. 9:16 for Reels).
+    aspect: str | None = None
 
 
 class TTSRequest(BaseModel):
@@ -252,7 +255,13 @@ def render(storyboard_id: str, body: RenderRequest | None = None,
            svc: Services = Depends(get_services)) -> dict:
     row = _storyboard_row(svc, storyboard_id)
     preview = bool(body and body.preview)
-    render_row = svc.pipeline.create_render(storyboard_id, preview=preview)
+    try:
+        render_row = svc.pipeline.create_render(storyboard_id, preview=preview,
+                                                aspect=body.aspect if body else None)
+    except lifecycle.LifecycleError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     job = svc.queue.enqueue("render", {"render_id": render_row.id, "storyboard_id": storyboard_id,
                                        "steps": RENDER_STEPS}, project_id=row.project_id)
     with svc.session_factory.begin() as s:
@@ -300,6 +309,16 @@ def delete_render(render_id: str, svc: Services = Depends(get_services)) -> None
         r = s.get(Render, render_id)
         if r is None:
             raise HTTPException(404, "Không tìm thấy bản xuất")
+        if r.status in ("queued", "running"):
+            raise HTTPException(409, "Bản xuất đang chạy; huỷ công việc trước khi xoá")
+        if r.storyboard_id:
+            sb = s.get(StoryboardRow, r.storyboard_id)
+            if sb is not None and sb.approved_render_id == r.id:
+                raise HTTPException(409, "Đây là bản đã duyệt; bỏ duyệt trước khi xoá")
+        if s.scalars(select(Publication.id).where(
+                Publication.render_id == r.id,
+                Publication.status.in_(lifecycle.ACTIVE_PUBLICATION))).first():
+            raise HTTPException(409, "Bản xuất đang được lên lịch đăng")
         for rel in (r.outputs or {}).values():
             path = svc.settings.data_dir / rel
             if path.is_file():

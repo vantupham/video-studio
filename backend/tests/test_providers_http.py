@@ -343,15 +343,59 @@ async def test_edge_tts_word_boundaries(tmp_path, monkeypatch):
 async def test_edge_tts_failure_is_unavailable(tmp_path, monkeypatch):
     import edge_tts
 
+    calls = []
+
     class Broken(_FakeEdgeCommunicate):
         async def stream(self):
+            calls.append(self.text)
             raise edge_tts.exceptions.NoAudioReceived("no audio")
             yield  # pragma: no cover
 
     monkeypatch.setattr(edge_tts, "Communicate", Broken)
-    with pytest.raises(ProviderUnavailableError):
+    monkeypatch.setattr(tts, "EDGE_RETRY_DELAY_S", 0)
+    with pytest.raises(ProviderUnavailableError, match="NoAudioReceived"):
         await tts.EdgeTTS().synthesize(ctx(), "Xin chào", voice=None, lang="vi",
                                        out_path=tmp_path / "e.mp3")
+    assert len(calls) == tts.EDGE_ATTEMPTS
+
+
+async def test_edge_tts_retries_intermittent_no_audio(tmp_path, monkeypatch):
+    import edge_tts
+
+    attempts = []
+
+    class Flaky(_FakeEdgeCommunicate):
+        async def stream(self):
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise edge_tts.exceptions.NoAudioReceived("no audio")
+            async for chunk in super().stream():
+                yield chunk
+
+    monkeypatch.setattr(edge_tts, "Communicate", Flaky)
+    monkeypatch.setattr(tts, "EDGE_RETRY_DELAY_S", 0)
+    out = await tts.EdgeTTS().synthesize(ctx(), "Xin chào", voice=None, lang="vi",
+                                         out_path=tmp_path / "e.mp3")
+    assert len(attempts) == 3
+    assert out.path.read_bytes() == FAKE_MP3 and [w.text for w in out.words] == ["Xin", "chào"]
+
+
+async def test_edge_tts_does_not_retry_bad_parameters(tmp_path, monkeypatch):
+    import edge_tts
+
+    attempts = []
+
+    class BadVoice(_FakeEdgeCommunicate):
+        async def stream(self):
+            attempts.append(1)
+            raise ValueError("Invalid voice 'xx'")
+            yield  # pragma: no cover
+
+    monkeypatch.setattr(edge_tts, "Communicate", BadVoice)
+    with pytest.raises(ProviderUnavailableError, match="Invalid voice"):
+        await tts.EdgeTTS().synthesize(ctx(), "Xin chào", voice="xx", lang="vi",
+                                       out_path=tmp_path / "e.mp3")
+    assert len(attempts) == 1
 
 
 # ----------------------------------------------------------------------------- media

@@ -434,6 +434,8 @@ class MockLLM(LLMProvider):
         task = payload.get("task")
         if task == "scene":
             result = mock_scene(payload)
+        elif task == "metadata":
+            result = mock_metadata(payload)
         else:
             result = mock_script(payload)
         return LLMResponse(text=json.dumps(result, ensure_ascii=False), model="mock-1")
@@ -513,6 +515,33 @@ def mock_scene(payload: dict[str, Any]) -> dict[str, Any]:
         "bullets": scene.get("bullets") or [],
         "image_query": scene.get("image_query"),
     }
+
+
+def _hashtag(text: str) -> str:
+    import unicodedata
+
+    plain = unicodedata.normalize("NFD", text.replace("đ", "d").replace("Đ", "D"))
+    plain = "".join(ch for ch in plain if unicodedata.category(ch) != "Mn")
+    return "#" + "".join(w[:1].upper() + w[1:] for w in re.findall(r"[A-Za-z0-9]+", plain))
+
+
+def mock_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    title = (payload.get("title") or "Video").strip()
+    narrations = [n for n in payload.get("narrations", []) if n]
+    intro = " ".join(_SENTENCE.split(" ".join(narrations))[:2]).strip()
+    headings = [h for h in payload.get("headings", []) if h][:5]
+    platform = payload.get("platform", "youtube")
+    description = intro or title
+    if headings:
+        description += "\n\nNội dung chính:\n" + "\n".join(f"• {h}" for h in headings)
+    tags = [title.lower()] + [h.lower() for h in headings[:4]]
+    hashtags = [_hashtag(title)] + [_hashtag(h) for h in headings[:3]]
+    suffix = " | Video ngắn" if platform == "facebook" and payload.get("aspect") == "9:16" \
+        else ""
+    return {"titles": [f"{title}{suffix}"[:95], f"{title}: những điều cần biết"[:95],
+                       f"Tìm hiểu nhanh: {title}"[:95]],
+            "description": description[:4500], "tags": tags[:12],
+            "hashtags": [h for h in hashtags if len(h) > 1][:6]}
 
 
 PROVIDERS = [OpenAILLM, OpenAICompatibleLLM, AnthropicLLM, GeminiLLM, OllamaLLM, MockLLM]

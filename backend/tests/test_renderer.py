@@ -144,3 +144,73 @@ async def test_cancel_stops_render(tmp_path, cancel_after):
                                       _ctx(cancel_after=cancel_after))
     assert not list((tmp_path / "Đầu ra").glob("*.mp4"))
     assert not list((tmp_path / "work" / "segments").glob("*.mp4"))
+
+
+def _frame_center(video: Path, t: float, rel: tuple[float, float] = (0.5, 0.5)
+                  ) -> tuple[int, int, int]:
+    import subprocess
+
+    out = video.parent / f"f{t:.2f}.png"
+    subprocess.run([FFMPEG.ffmpeg, "-y", "-v", "error", "-ss", f"{t:.3f}", "-i", str(video),
+                    "-frames:v", "1", str(out)], check=True)
+    with Image.open(out) as im:
+        rgb = im.convert("RGB")
+        return rgb.getpixel((int(rgb.width * rel[0]), int(rgb.height * rel[1])))
+
+
+@pytest.mark.parametrize("transition", ["crossfade", "fade", "none", "slideleft"])
+async def test_transitions_keep_timing_and_blend(tmp_path, transition):
+    white, red = tmp_path / "trắng.png", tmp_path / "đỏ.png"
+    Image.new("RGB", (640, 360), (255, 255, 255)).save(white)
+    Image.new("RGB", (640, 360), (220, 0, 0)).save(red)
+    scenes = [SceneMedia(scene=Scene(id=f"s{i}", narration="", duration=1.0,
+                                     visual=Visual(type="image", image="x")), image_path=img)
+              for i, img in enumerate((white, red, white), 1)]
+    plan = _plan(tmp_path, "explainer_16x9", scenes, preview=True)
+    plan.style_data = {**plan.style_data, "transitions": {"type": transition, "duration_s": 0.4},
+                       "ken_burns": {"enabled": False}}
+    result = await FFmpegRenderer().render(plan, _ctx())
+    assert result.transition == transition
+    assert [(t["scene_id"], t["start"], t["end"]) for t in result.timeline] == [
+        ("s1", 0.0, 1.0), ("s2", 1.0, 2.0), ("s3", 2.0, 3.0)]
+    assert float(probe(result.video_path)["format"]["duration"]) == pytest.approx(3.0, abs=0.1)
+    # Centre pixel shortly after the first cut: dark when fading through black, a
+    # white/red mix while cross-fading, already red with a hard cut.
+    r, g, b = _frame_center(result.video_path, 1.04)
+    if transition == "fade":
+        assert max(r, g, b) < 90
+    elif transition == "crossfade":
+        assert r > 200 and 120 < g < 250
+    elif transition == "none":
+        assert r > 180 and g < 60
+    # Well inside scene 2 every variant shows plain red.
+    r, g, b = _frame_center(result.video_path, 1.6)
+    assert r > 180 and g < 60
+
+
+async def test_ken_burns_moves_image_and_is_cached_per_mode(tmp_path):
+    from videostudio.pipeline.renderer_ffmpeg import ken_burns_filter
+
+    assert "zoompan" in ken_burns_filter("pan_left", 1.2, 30, 640, 360, 30)
+    img = tmp_path / "ảnh.png"
+    im = Image.new("RGB", (640, 360))
+    for x in range(640):
+        for y in range(360):
+            im.putpixel((x, y), (x * 255 // 639, 128, 255 - x * 255 // 639))
+    im.save(img)
+    scenes = [SceneMedia(scene=Scene(id="s1", narration="", duration=1.5,
+                                     visual=Visual(type="image", image="x")), image_path=img)]
+    plan = _plan(tmp_path, "explainer_16x9", scenes, preview=True)
+    plan.style_data = {**plan.style_data, "ken_burns": {"enabled": True, "zoom": 1.3,
+                                                        "mode": "zoom_in"}}
+    logs: list[str] = []
+    result = await FFmpegRenderer().render(plan, _ctx(logs))
+    assert any("Ken Burns: zoom_in" in m for m in logs)
+    first = _frame_center(result.video_path, 0.3, (0.3, 0.5))
+    last = _frame_center(result.video_path, 1.3, (0.3, 0.5))
+    assert result.duration_s == pytest.approx(1.5, abs=0.1)
+    assert abs(first[0] - last[0]) + abs(first[2] - last[2]) > 12  # the picture moved
+    segs = set((tmp_path / "work" / "segments").glob("*.mp4"))
+    plan.style_data["ken_burns"] = {"enabled": True, "zoom": 1.3, "mode": "pan_right"}
+    await FFmpegRenderer().render(plan, _ctx())
+    assert len(set((tmp_path / "work" / "segments").glob("*.mp4")) - segs) == 1

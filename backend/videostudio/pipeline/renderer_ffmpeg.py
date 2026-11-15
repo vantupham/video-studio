@@ -18,6 +18,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from PIL.Image import LANCZOS
+
 from videostudio.media.ffmpeg import (
     SOFTWARE_H264,
     VideoEncoder,
@@ -39,7 +41,34 @@ log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 48000
 NARRATION_LEAD_S = 0.12
-RENDERER_VERSION = "1"
+RENDERER_VERSION = "2"
+# xfade with more inputs gets slow and the command line long; fall back to plain fades.
+MAX_XFADE_SCENES = 80
+KB_OVERSAMPLE = 1.5
+KEN_BURNS_CYCLE = ("zoom_in", "pan_right", "zoom_out", "pan_left")
+XFADE_ALIASES = {"cross": "crossfade", "crossfade": "crossfade", "xfade": "crossfade",
+                 "cut": "none", "off": "none", "fade_black": "fadeblack"}
+XFADE_TRANSITIONS = {"crossfade", "fadeblack", "fadewhite", "dissolve", "slideleft",
+                     "slideright", "slideup", "slidedown", "wipeleft", "wiperight", "wipeup",
+                     "wipedown", "smoothleft", "smoothright", "circleopen", "circleclose",
+                     "radial", "pixelize", "distance", "hblur", "zoomin"}
+
+
+def ken_burns_filter(mode: str, zoom: float, frames: int, width: int, height: int,
+                     fps: int) -> str:
+    """zoompan expression for one still image; ``on`` is the output frame number."""
+    last = max(1, frames - 1)
+    progress = f"(on/{last})"
+    center_x, center_y = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+    if mode == "zoom_out":
+        z, x, y = f"{zoom:.4f}-{zoom - 1:.4f}*{progress}", center_x, center_y
+    elif mode == "pan_right":
+        z, x, y = f"{zoom:.4f}", f"(iw-iw/zoom)*{progress}", center_y
+    elif mode == "pan_left":
+        z, x, y = f"{zoom:.4f}", f"(iw-iw/zoom)*(1-{progress})", center_y
+    else:  # zoom_in
+        z, x, y = f"1+{zoom - 1:.4f}*{progress}", center_x, center_y
+    return f"zoompan=z='{z}':x='{x}':y='{y}':d=1:s={width}x{height}:fps={fps}"
 
 
 def _hash(data: Any) -> str:
@@ -129,18 +158,61 @@ class FFmpegRenderer:
                 ctx.report_progress(lo + (hi - lo) * frac, msg)
             return cb
 
+        transition, trans_d = self.transition(style)
+        n = len(timeline)
+        # Crossfade-style transitions overlap into the *next* scene: each segment except
+        # the last is rendered ``tail`` seconds longer and blended over the next one, so
+        # scene start times (and the narration track) are unchanged.
+        tails = [0.0] * n
+        if transition not in ("none", "fade") and n > 1 and n <= MAX_XFADE_SCENES:
+            for i in range(n - 1):
+                t = min(trans_d, 0.4 * timeline[i].duration_s, 0.4 * timeline[i + 1].duration_s)
+                tails[i] = round(t * fps) / fps
+        else:
+            transition = "fade" if transition != "none" else "none"
+        ken = style.section("ken_burns")
+        ken_on = bool(ken.get("enabled", True))
+        ken_zoom = max(1.0, min(1.5, float(ken.get("zoom", 1.12))))
+        ken_mode = str(ken.get("mode", "alternate"))
+        timeline_out: list[dict[str, Any]] = []
+        t_start = 0.0
+        card_kinds = {id(m): "intro" for m in intro} | {id(m): "outro" for m in outro}
+        for media in timeline:
+            kind = card_kinds.get(id(media), "scene")
+            timeline_out.append({"scene_id": media.scene.id, "kind": kind,
+                                 "start": round(t_start, 3),
+                                 "end": round(t_start + media.duration_s, 3)})
+            t_start += media.duration_s
+
         try:
             # 1. video segments ------------------------------------------------
             segments: list[Path] = []
             style_sig = _hash([style.section("colors"), style.section("cards"),
                                style.section("fonts"), RENDERER_VERSION])
-            n = len(timeline)
+            image_no = 0
             for i, media in enumerate(timeline):
                 ctx.check_cancelled()
+                is_image = media.scene.visual.type in ("image", "stock") and \
+                    media.image_path is not None
+                motion = None
+                if is_image and ken_on:
+                    motion = ken_mode if ken_mode != "alternate" else \
+                        KEN_BURNS_CYCLE[image_no % len(KEN_BURNS_CYCLE)]
+                    image_no += 1
+                if transition == "fade":
+                    f = min(fade, media.duration_s / 4)
+                    fades = (f, f)
+                elif transition == "none":
+                    fades = (0.0, 0.0)
+                else:  # xfade: only fade in the very first and out of the very last scene
+                    f = min(fade, media.duration_s / 4)
+                    fades = (f if i == 0 else 0.0, f if i == n - 1 else 0.0)
+                seg_dur = media.duration_s + tails[i]
                 sig = {"visual": media.scene.visual.model_dump(),
                        "overlays": [o.model_dump() for o in media.scene.overlays],
                        "image": _file_sig(media.image_path), "size": [width, height],
-                       "fps": fps, "dur": media.duration_s, "fade": fade, "style": style_sig}
+                       "fps": fps, "dur": seg_dur, "fades": fades, "style": style_sig,
+                       "motion": motion, "zoom": ken_zoom if motion else None}
                 key = _hash(sig)
                 seg = work / "segments" / f"{key}.mp4"
                 if not seg.is_file():
@@ -148,18 +220,20 @@ class FFmpegRenderer:
                     image = render_card(media.scene.visual, style, (width, height),
                                         media.scene.overlays, media.image_path,
                                         caption_safe=plan.burn_subtitles)
-                    image.save(card, "PNG", compress_level=1)
-                    frames = round(media.duration_s * fps)
+                    frames = max(1, round(seg_dur * fps))
                     vf = []
-                    if media.scene.visual.type in ("image", "stock") and media.image_path:
-                        vf.append(f"scale={int(width * 1.2)}:{int(height * 1.2)},"
-                                  f"zoompan=z='min(1+0.10*on/{frames},1.1)':"
-                                  f"x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:"
-                                  f"s={width}x{height}:fps={fps}")
-                    f = min(fade, media.duration_s / 4)
-                    if f > 0:
-                        vf.append(f"fade=t=in:st=0:d={f:.3f},fade=t=out:"
-                                  f"st={media.duration_s - f:.3f}:d={f:.3f}")
+                    if motion:
+                        # Oversample the still so zoompan's integer crop offsets don't
+                        # make the motion shake.
+                        image = image.resize((int(width * KB_OVERSAMPLE),
+                                              int(height * KB_OVERSAMPLE)), LANCZOS)
+                        vf.append(ken_burns_filter(motion, ken_zoom, frames, width, height,
+                                                   fps))
+                    image.save(card, "PNG", compress_level=1)
+                    if fades[0] > 0:
+                        vf.append(f"fade=t=in:st=0:d={fades[0]:.3f}")
+                    if fades[1] > 0:
+                        vf.append(f"fade=t=out:st={seg_dur - fades[1]:.3f}:d={fades[1]:.3f}")
                     vf.append("format=yuv420p")
                     tmp = seg.with_suffix(".part.mp4")
                     await run_ffmpeg(
@@ -169,7 +243,8 @@ class FFmpegRenderer:
                          "-g", str(fps * 2), "-pix_fmt", "yuv420p", "-an", str(tmp)],
                         is_cancelled=cancelled)
                     tmp.replace(seg)
-                    ctx.log(f"Cảnh {media.scene.id}: dựng hình {media.duration_s:.1f}s")
+                    ctx.log(f"Cảnh {media.scene.id}: dựng hình {media.duration_s:.1f}s"
+                            + (f" (Ken Burns: {motion})" if motion else ""))
                 segments.append(seg)
                 ctx.report_progress(5 + 50 * (i + 1) / n, f"Dựng hình {i + 1}/{n}")
 
@@ -204,8 +279,13 @@ class FFmpegRenderer:
             wav_list = work / "audio.txt"
             wav_list.write_text("".join(f"file '{p.relative_to(work).as_posix()}'\n"
                                         for p in wavs), encoding="utf-8")
-            await run_ffmpeg([ffmpeg, "-f", "concat", "-safe", "0", "-i", "segments.txt",
-                              "-c", "copy", "video_only.mp4"], cwd=work, is_cancelled=cancelled)
+            if any(tails):
+                await self._xfade_join(ffmpeg, segments, timeline, tails, transition, fps,
+                                       total, work, cancelled)
+            else:
+                await run_ffmpeg([ffmpeg, "-f", "concat", "-safe", "0", "-i", "segments.txt",
+                                  "-c", "copy", "video_only.mp4"], cwd=work,
+                                 is_cancelled=cancelled)
             await run_ffmpeg([ffmpeg, "-f", "concat", "-safe", "0", "-i", "audio.txt",
                               "-c", "copy", "narration.wav"], cwd=work, is_cancelled=cancelled)
             ctx.report_progress(62, "Tạo phụ đề")
@@ -276,7 +356,45 @@ class FFmpegRenderer:
         return RenderResult(video_path=out_video, duration_s=duration, width=width,
                             height=height, encoder=used.name,
                             subtitles={k: v for k, v in outputs.items()},
-                            thumbnail_path=thumb if thumb and thumb.is_file() else None)
+                            thumbnail_path=thumb if thumb and thumb.is_file() else None,
+                            timeline=timeline_out, transition=transition)
+
+    @staticmethod
+    def transition(style: StylePack) -> tuple[str, float]:
+        cfg = style.section("transitions")
+        kind = str(cfg.get("type", "fade") or "none").strip().lower()
+        kind = XFADE_ALIASES.get(kind, kind)
+        if kind not in ("none", "fade") and kind not in XFADE_TRANSITIONS:
+            log.warning("Unknown transition %r, using crossfade", kind)
+            kind = "crossfade"
+        return kind, max(0.1, min(2.0, float(cfg.get("duration_s", 0.5))))
+
+    async def _xfade_join(self, ffmpeg: str, segments: list[Path], timeline: list[SceneMedia],
+                          tails: list[float], transition: str, fps: int, total: float,
+                          work: Path, cancelled) -> None:
+        name = "fade" if transition == "crossfade" else transition
+        args = [ffmpeg]
+        for seg in segments:
+            args += ["-i", seg.relative_to(work).as_posix()]
+        filters = [f"[{i}:v]settb=AVTB,setpts=PTS-STARTPTS,fps={fps}[v{i}]"
+                   for i in range(len(segments))]
+        prev, start = "[v0]", 0.0
+        for i in range(1, len(segments)):
+            start += timeline[i - 1].duration_s
+            out = f"[x{i}]"
+            if tails[i - 1] > 0:
+                filters.append(f"{prev}[v{i}]xfade=transition={name}:"
+                               f"duration={tails[i - 1]:.3f}:offset={start:.3f}{out}")
+            else:
+                filters.append(f"{prev}[v{i}]concat=n=2:v=1:a=0{out}")
+            prev = out
+        # Inline on purpose: -filter_complex_script is gone from FFmpeg 8 and the
+        # "-/filter_complex file" replacement does not exist before 7.0. The graph
+        # stays well under the Windows command-line limit (MAX_XFADE_SCENES).
+        await run_ffmpeg([*args, "-filter_complex", ";".join(filters), "-map", prev,
+                          "-t", f"{total:.3f}", "-c:v", "libx264", "-preset", "ultrafast",
+                          "-crf", "14", "-pix_fmt", "yuv420p", "-r", str(fps),
+                          "video_only.mp4"], cwd=work, total_s=total, is_cancelled=cancelled)
 
     def _final_args(self, ffmpeg: str, plan: RenderPlan, enc: VideoEncoder, width: int,
                     height: int, total: float, words_present: bool) -> list[str]:

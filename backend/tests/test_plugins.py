@@ -68,20 +68,30 @@ def test_stub_protocols_are_runtime_checkable() -> None:
     class FakePublisher:
         id = "fake"
         name = "Fake"
+        platform = "youtube"
 
-        def config_schema(self):
+        def metadata_schema(self):
             return {}
 
-        def constraints(self):
+        def constraints(self, options=None):
             ...
 
-        async def publish(self, request, ctx):
+        async def publish(self, req, pctx):
             ...
 
-        async def status(self, remote_id):
+        async def status(self, remote_id, pctx):
+            ...
+
+    class Incomplete:
+        id = "x"
+        name = "X"
+        platform = "youtube"
+
+        async def publish(self, req, pctx):
             ...
 
     assert isinstance(FakePublisher(), Publisher)
+    assert not isinstance(Incomplete(), Publisher)
     assert not isinstance(FakePublisher(), Renderer)
     assert not isinstance(object(), LLMProvider)
     assert not isinstance(object(), TTSProvider)

@@ -21,13 +21,14 @@ from videostudio.plugins.base import JobCancelled, JobContext
 from videostudio.providers.base import MediaProvider, ResolvedProvider, WordTiming
 from videostudio.providers.errors import ProviderError
 from videostudio.providers.service import ProviderNotFound, ProviderService
+from videostudio.review import lifecycle
 from videostudio.textutil import safe_filename
 
 from .models import GenerationSettings, Storyboard
 from .render_types import Branding, RenderPlan, SceneMedia
 from .renderer_ffmpeg import FFmpegRenderer
 from .script_writer import make_image_resolver, regenerate_scene, write_script
-from .styles import StyleLibrary
+from .styles import RESOLUTIONS, StyleLibrary
 from .tts_step import TTSCache, narration_asset, synthesize_narration
 
 log = logging.getLogger(__name__)
@@ -309,12 +310,22 @@ class PipelineService:
 
     # ------------------------------------------------------------------ render
 
-    def create_render(self, storyboard_id: str, preview: bool = False) -> Render:
+    def create_render(self, storyboard_id: str, preview: bool = False,
+                      aspect: str | None = None) -> Render:
+        """Queue a render row. ``aspect`` different from the storyboard's makes a *variant*
+        (e.g. 9:16 for Reels) that leaves the review status alone."""
         storyboard, row = self.get_storyboard(storyboard_id)
+        aspect = aspect or storyboard.aspect
+        if aspect not in RESOLUTIONS:
+            raise ValueError(f"Tỉ lệ khung hình không hỗ trợ: {aspect}")
+        variant = aspect != storyboard.aspect
         with self.session_factory.begin() as s:
+            db_row = s.get(StoryboardRow, storyboard_id)
+            assert db_row is not None
+            lifecycle.on_render_created(s, db_row, variant=variant, preview=preview)
             render = Render(project_id=row.project_id, storyboard_id=storyboard_id,
-                            status="queued", style=storyboard.style, aspect=storyboard.aspect,
-                            settings={"preview": preview})
+                            status="queued", style=storyboard.style, aspect=aspect,
+                            settings={"preview": preview, "variant": variant})
             s.add(render)
             s.flush()
             s.expunge(render)
@@ -333,26 +344,48 @@ class PipelineService:
             if render is None:
                 raise KeyError(render_id)
             storyboard_id, preview = render.storyboard_id, bool(render.settings.get("preview"))
-            project_id = render.project_id
+            project_id, aspect = render.project_id, render.aspect
         if storyboard_id is None:
             raise ValueError("Storyboard đã bị xoá")
-        self._set_render(render_id, status="running", job_id=ctx.job_id, error=None)
+        with self.session_factory.begin() as s:
+            render = s.get(Render, render_id)
+            assert render is not None
+            render.status, render.job_id, render.error = "running", ctx.job_id, None
+            row = s.get(StoryboardRow, storyboard_id)
+            if row is not None:
+                lifecycle.on_render_started(s, row, render)
         try:
-            result = await self._render(render_id, storyboard_id, project_id, preview, ctx)
+            result = await self._render(render_id, storyboard_id, project_id, preview, ctx,
+                                        aspect)
         except Exception as exc:
             status = "cancelled" if isinstance(exc, JobCancelled) else "failed"
             message = getattr(exc, "message", None) or str(exc) or type(exc).__name__
-            self._set_render(render_id, status=status, error=message, finished_at=utcnow())
+            self._finish_render(render_id, False, status=status, error=message,
+                                finished_at=utcnow())
             raise
         return result
 
+    def _finish_render(self, render_id: str, ok: bool, **fields: Any) -> None:
+        with self.session_factory.begin() as s:
+            render = s.get(Render, render_id)
+            if render is None:
+                return
+            for k, v in fields.items():
+                setattr(render, k, v)
+            row = s.get(StoryboardRow, render.storyboard_id) if render.storyboard_id else None
+            if row is not None:
+                lifecycle.on_render_finished(s, row, render, ok, fields.get("error"))
+
     async def _render(self, render_id: str, storyboard_id: str, project_id: str,
-                      preview: bool, ctx: JobContext) -> dict[str, Any]:
+                      preview: bool, ctx: JobContext,
+                      aspect: str | None = None) -> dict[str, Any]:
         steps = {s["id"]: s for s in RENDER_STEPS}
         tts_step = steps["tts"]
         synth = await self.synthesize_scenes(
             storyboard_id, _sub_ctx(ctx, tts_step["start"], tts_step["end"]))
         storyboard, row = self.get_storyboard(storyboard_id)
+        aspect = aspect or storyboard.aspect
+        content = lifecycle.content_hash(row.data, row.settings)
         gen = GenerationSettings.model_validate(row.settings or {})
         project_settings = self.project_settings(project_id)
         style = self.styles.get(storyboard.style)
@@ -370,7 +403,7 @@ class PipelineService:
             elif scene.visual.type == "stock":
                 image_path = await self._stock_image(
                     media_provider, scene.visual.query or scene.visual.title or storyboard.title,
-                    storyboard.aspect, ctx)
+                    aspect, ctx)
             scene_media.append(SceneMedia(
                 scene=scene,
                 audio_path=(self.settings.data_dir / asset["audio"]) if asset else None,
@@ -392,10 +425,11 @@ class PipelineService:
             )
         project_dir = self.settings.project_dir(project_id)
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        basename = safe_filename(f"{storyboard.title[:60]}_{style.id}_{stamp}", "video")
+        suffix = "" if aspect == storyboard.aspect else "_" + aspect.replace(":", "x")
+        basename = safe_filename(f"{storyboard.title[:60]}_{style.id}{suffix}_{stamp}", "video")
         plan = RenderPlan(
             title=storyboard.title, style_id=style.id, style_data=style.data,
-            style_dirs=style.dirs, aspect=storyboard.aspect, language=storyboard.language,
+            style_dirs=style.dirs, aspect=aspect, language=storyboard.language,
             scenes=scene_media, work_dir=project_dir / "work",
             out_dir=project_dir / "outputs", basename=basename, branding=branding,
             music_path=self._asset_path(gen.music_asset_id), music_volume=gen.music_volume,
@@ -409,12 +443,22 @@ class PipelineService:
         if result.thumbnail_path:
             outputs["thumbnail"] = result.thumbnail_path.relative_to(data_dir).as_posix()
         size = result.video_path.stat().st_size
-        self._set_render(render_id, status="done", outputs=outputs,
-                         duration_s=round(result.duration_s, 3), size_bytes=size,
-                         finished_at=utcnow(),
-                         settings={"preview": preview, "encoder": result.encoder,
-                                   "width": result.width, "height": result.height,
-                                   "burned_subtitles": plan.burn_subtitles})
+        snapshot = {"title": storyboard.title, "scenes": [
+            {"id": sc.id, "narration": sc.narration, "duration": sc.duration,
+             "visual": sc.visual.model_dump(mode="json", exclude_none=True),
+             "overlays": [o.model_dump(mode="json") for o in sc.overlays]}
+            for sc in storyboard.scenes]}
+        self._finish_render(render_id, True, status="done", outputs=outputs,
+                            duration_s=round(result.duration_s, 3), size_bytes=size,
+                            finished_at=utcnow(),
+                            settings={"preview": preview,
+                                      "variant": aspect != storyboard.aspect,
+                                      "encoder": result.encoder, "width": result.width,
+                                      "height": result.height,
+                                      "burned_subtitles": plan.burn_subtitles,
+                                      "content_hash": content, "timeline": result.timeline,
+                                      "transition": result.transition,
+                                      "snapshot": snapshot})
         ctx.log(f"Xuất xong {result.video_path.name} ({result.duration_s:.1f}s, "
                 f"{size / 1e6:.1f} MB, {result.width}x{result.height}, {result.encoder})")
         return {"render_id": render_id, "outputs": outputs, "duration_s": result.duration_s,

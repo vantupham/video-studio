@@ -23,6 +23,8 @@ apps/desktop/src-tauri/binaries/backend/*
 !apps/desktop/src-tauri/binaries/backend/README.md
 apps/desktop/src-tauri/binaries/ffmpeg/*
 !apps/desktop/src-tauri/binaries/ffmpeg/README.md
+apps/desktop/src-tauri/binaries/tesseract/*
+!apps/desktop/src-tauri/binaries/tesseract/README.md
 
 # Local data / env
 .dev-data/

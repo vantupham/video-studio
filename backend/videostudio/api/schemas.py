@@ -25,6 +25,7 @@ class SourceOut(BaseModel):
     config: dict[str, Any]
     filename: str
     size_bytes: int
+    attachments: int = 0
     created_at: datetime
 
 

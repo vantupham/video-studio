@@ -25,10 +25,20 @@ from .schemas import (
     SourceOut,
 )
 from .services import Services, get_services
+from .uploads import (
+    MAX_BUNDLE_BYTES,
+    MAX_BUNDLE_FILES,
+    BundleError,
+    extract_zip,
+    pick_main,
+    safe_rel_path,
+    strip_common_root,
+)
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
-MAX_SOURCE_BYTES = 20 * 1024 * 1024
+MAX_SOURCE_BYTES = 50 * 1024 * 1024
+BINARY_SOURCE_EXTS = {".docx", ".pdf"}
 
 
 def _project_or_404(s, project_id: str) -> Project:
@@ -158,14 +168,29 @@ def list_sources(project_id: str, svc: Services = Depends(get_services)) -> list
 async def add_source(
     project_id: str,
     file: UploadFile | None = File(default=None),
+    files: list[UploadFile] | None = File(default=None),
+    paths: list[str] | None = Form(default=None),
+    main: str | None = Form(default=None),
     text: str | None = Form(default=None),
     name: str | None = Form(default=None),
     adapter_id: str | None = Form(default=None),
     config: str | None = Form(default=None),
     svc: Services = Depends(get_services),
 ) -> SourceOut:
+    """One document (``file``), pasted ``text``, or a bundle: a ``.zip`` in ``file`` or
+    several ``files`` (with their relative ``paths`` when a folder was picked)."""
     with svc.session_factory() as s:
         _project_or_404(s, project_id)
+
+    uploads = [f for f in (files or []) if f.filename]
+    if file is not None and file.filename and file.filename.lower().endswith(".zip"):
+        return await _add_bundle(svc, project_id, [file], None, main, name, adapter_id,
+                                 config, is_zip=True)
+    if uploads and (len(uploads) > 1 or paths):
+        return await _add_bundle(svc, project_id, uploads, paths, main, name, adapter_id,
+                                 config, is_zip=False)
+    if uploads and file is None:
+        file = uploads[0]
 
     if file is not None and file.filename:
         data = await file.read(MAX_SOURCE_BYTES + 1)
@@ -180,19 +205,10 @@ async def add_source(
     else:
         raise HTTPException(422, "Cần tải lên một file hoặc dán nội dung văn bản")
     if len(data) > MAX_SOURCE_BYTES:
-        raise HTTPException(413, "Nội dung quá lớn (tối đa 20 MB)")
+        raise HTTPException(413, "Nội dung quá lớn (tối đa 50 MB)")
 
-    probe_ref = SourceRef(type="file" if kind == "file" else "text", uri=display,
-                          filename=filename)
-    if adapter_id:
-        try:
-            adapter = svc.registry.get_input_adapter(adapter_id)
-        except KeyError as exc:
-            raise HTTPException(422, f"Không có adapter '{adapter_id}'") from exc
-    else:
-        adapter = svc.registry.find_input_adapter(probe_ref)
-        if adapter is None:
-            raise HTTPException(422, "Không tìm thấy adapter phù hợp, hãy chọn adapter")
+    adapter = _pick_adapter(svc, adapter_id, "file" if kind == "file" else "text", display,
+                            filename)
     cfg = _parse_config(config, adapter.config_schema())
 
     if filename is None:
@@ -204,16 +220,92 @@ async def add_source(
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / filename
     path.write_bytes(data)
+    return _save_source(svc, project_id, source_id, display, kind, adapter.id, cfg, filename,
+                        path, len(data), 0)
+
+
+def _pick_adapter(svc: Services, adapter_id: str | None, kind: str, display: str,
+                  filename: str | None):
+    if adapter_id:
+        try:
+            return svc.registry.get_input_adapter(adapter_id)
+        except KeyError as exc:
+            raise HTTPException(422, f"Không có adapter '{adapter_id}'") from exc
+    adapter = svc.registry.find_input_adapter(
+        SourceRef(type=kind, uri=display, filename=filename))  # type: ignore[arg-type]
+    if adapter is None:
+        raise HTTPException(422, "Không tìm thấy adapter phù hợp, hãy chọn adapter")
+    return adapter
+
+
+def _save_source(svc: Services, project_id: str, source_id: str, display: str, kind: str,
+                 adapter_id: str, cfg: dict[str, Any], filename: str, path: Path, size: int,
+                 attachments: int) -> SourceOut:
     with svc.session_factory.begin() as s:
         src = Source(
             id=source_id, project_id=project_id, name=display, kind=kind,
-            adapter_id=adapter.id, config=cfg, filename=filename,
-            rel_path=path.relative_to(svc.settings.data_dir).as_posix(), size_bytes=len(data),
+            adapter_id=adapter_id, config=cfg, filename=filename,
+            rel_path=path.relative_to(svc.settings.data_dir).as_posix(), size_bytes=size,
+            attachments=attachments,
         )
         s.add(src)
         _project_or_404(s, project_id).updated_at = utcnow()
         s.flush()
         return _source_out(src)
+
+
+async def _add_bundle(svc: Services, project_id: str, uploads: list[UploadFile],
+                      paths: list[str] | None, main: str | None, name: str | None,
+                      adapter_id: str | None, config: str | None, *, is_zip: bool
+                      ) -> SourceOut:
+    source_id = new_id()
+    folder = svc.settings.project_dir(project_id) / "sources" / source_id
+    folder.mkdir(parents=True, exist_ok=True)
+    try:
+        if is_zip:
+            tmp = folder / ".upload.zip"
+            size = await _stream_to(uploads[0], tmp, MAX_BUNDLE_BYTES)
+            try:
+                rels = extract_zip(tmp, folder)
+            finally:
+                tmp.unlink(missing_ok=True)
+        else:
+            if paths and len(paths) != len(uploads):
+                raise BundleError("Số đường dẫn không khớp số tệp")
+            wanted = [safe_rel_path((paths[i] if paths else None) or u.filename or "")
+                      for i, u in enumerate(uploads)]
+            pairs = [(u, r) for u, r in zip(uploads, wanted, strict=True) if r is not None]
+            if len(pairs) > MAX_BUNDLE_FILES:
+                raise BundleError(f"Quá nhiều tệp (tối đa {MAX_BUNDLE_FILES})")
+            rels = strip_common_root([r for _, r in pairs])
+            size = 0
+            for (upload, _), rel in zip(pairs, rels, strict=True):
+                size += await _stream_to(upload, folder / rel, MAX_BUNDLE_BYTES - size)
+        main_rel = pick_main(rels, main)
+    except BundleError as exc:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise HTTPException(422, str(exc)) from exc
+    except HTTPException:
+        shutil.rmtree(folder, ignore_errors=True)
+        raise
+    display = name or (Path(uploads[0].filename or "").stem if is_zip else main_rel.name)
+    adapter = _pick_adapter(svc, adapter_id, "file", main_rel.name, main_rel.name)
+    cfg = _parse_config(config, adapter.config_schema())
+    return _save_source(svc, project_id, source_id, display or main_rel.name, "file",
+                        adapter.id, cfg, main_rel.name, folder / main_rel, size,
+                        len(rels) - 1)
+
+
+async def _stream_to(upload: UploadFile, dest: Path, budget: int) -> int:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
+    with dest.open("wb") as out:
+        while chunk := await upload.read(1 << 20):
+            written += len(chunk)
+            if written > budget:
+                raise HTTPException(413, "Tổng dung lượng quá lớn (tối đa 200 MB)")
+            out.write(chunk)
+    return written
 
 
 @router.get("/{project_id}/sources/{source_id}/content", response_class=PlainTextResponse)
@@ -223,6 +315,9 @@ def source_content(project_id: str, source_id: str, svc: Services = Depends(get_
         if src is None or src.project_id != project_id:
             raise HTTPException(404, "Không tìm thấy nguồn")
         path = svc.settings.data_dir / src.rel_path
+    if path.suffix.lower() in BINARY_SOURCE_EXTS:
+        raise HTTPException(415, "Không xem trước được tệp Word/PDF. Hãy bấm “Xử lý” rồi xem "
+                                 "Content IR.")
     return normalize_text(decode_bytes(path.read_bytes()))
 
 
@@ -232,7 +327,7 @@ def delete_source(project_id: str, source_id: str, svc: Services = Depends(get_s
         src = s.get(Source, source_id)
         if src is None or src.project_id != project_id:
             raise HTTPException(404, "Không tìm thấy nguồn")
-        folder = (svc.settings.data_dir / src.rel_path).parent
+        folder = svc.settings.project_dir(project_id) / "sources" / src.id
         s.delete(src)
     shutil.rmtree(folder, ignore_errors=True)
 

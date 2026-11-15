@@ -1,12 +1,18 @@
 """Smoke-test the frozen backend sidecar exactly like the Tauri shell launches it.
 
     python scripts/smoke_sidecar.py <path to videostudio-backend[.exe]> [--render]
+        [--documents <fixtures dir>] [--publish]
 
 Starts the executable with a random token and ``--port 0``, reads the port from
 stdout, then checks auth, migrations (project CRUD), an ingest job with Vietnamese
 text and the secret store. ``--render`` additionally generates a storyboard with the
 demo LLM and renders both built-in styles with the offline mock voice (needs FFmpeg:
-``VIDEOSTUDIO_FFMPEG_DIR``, ``<install>/ffmpeg`` or PATH). Uses only the standard library.
+``VIDEOSTUDIO_FFMPEG_DIR``, ``<install>/ffmpeg`` or PATH).
+
+``--documents DIR`` ingests the DOCX, text PDF and scanned PDF made by
+``backend/tests/fixtures/make_fixtures.py`` (the scan goes through the default OCR
+provider, Tesseract) and renders the DOCX. ``--publish`` then approves that video and
+publishes it to a mock YouTube account. Uses only the standard library.
 """
 
 from __future__ import annotations
@@ -28,7 +34,8 @@ TIMEOUT_S = 120
 RENDER_TIMEOUT_S = 600
 
 
-def request(base: str, method: str, path: str, token: str | None, body=None, form=None):
+def request(base: str, method: str, path: str, token: str | None, body=None, form=None,
+            files=None):
     headers = {}
     data = None
     if token:
@@ -36,15 +43,22 @@ def request(base: str, method: str, path: str, token: str | None, body=None, for
     if body is not None:
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
-    if form is not None:
+    if form is not None or files is not None:
         boundary = uuid.uuid4().hex
-        parts = []
-        for key, value in form.items():
+        parts: list[bytes] = []
+        for key, value in (form or {}).items():
             parts.append(
                 f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'
+                .encode()
             )
-        parts.append(f"--{boundary}--\r\n")
-        data = "".join(parts).encode("utf-8")
+        for key, (filename, content) in (files or {}).items():
+            parts.append(
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"; '
+                f'filename="{filename}"\r\nContent-Type: application/octet-stream\r\n\r\n'
+                .encode() + content + b"\r\n"
+            )
+        parts.append(f"--{boundary}--\r\n".encode())
+        data = b"".join(parts)
         headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
     req = urllib.request.Request(base + path, data=data, method=method, headers=headers)
     try:
@@ -101,9 +115,114 @@ def smoke_render(base: str, token: str, pid: str, doc_id: str) -> None:
               f"encoder={render['settings']['encoder']} in {time.monotonic() - started:.1f}s")
 
 
+# Expected text per fixture: Vietnamese words with diacritics must survive extraction.
+DOCUMENT_CHECKS = {
+    "tài liệu mẫu.docx": ("docx", "Hướng dẫn trồng cà phê", ["Tây Nguyên"]),
+    "tài liệu mẫu.pdf": ("pdf", "Du lịch Việt Nam", ["Vịnh Hạ Long", "Sửng Sốt"]),
+    # Words Tesseract reads reliably in both Times New Roman (Windows) and Liberation Serif.
+    "bản scan.pdf": ("pdf", None, ["Phở", "Bánh mì Sài Gòn", "thế giới"]),
+}
+
+
+def _ir_text(ir: dict) -> str:
+    out: list[str] = [ir.get("title") or ""]
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ("text", "title") and isinstance(value, str):
+                    out.append(value)
+                else:
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(ir.get("sections", []))
+    return "\n".join(out)
+
+
+def smoke_documents(base: str, token: str, pid: str, fixtures: Path) -> str:
+    """Ingest DOCX / text PDF / scanned PDF; returns the DOCX document id."""
+    docx_id = ""
+    for filename, (adapter, title, words) in DOCUMENT_CHECKS.items():
+        started = time.monotonic()
+        status, src = request(base, "POST", f"/projects/{pid}/sources", token,
+                              files={"file": (filename, (fixtures / filename).read_bytes())})
+        assert status == 201, (filename, status)
+        assert src["adapter_id"] == adapter, src
+        status, job = request(base, "POST", f"/projects/{pid}/ingest", token,
+                              body={"source_ids": [src["id"]]})
+        assert status == 202, status
+        job = wait_job(base, token, job, RENDER_TIMEOUT_S)
+        assert job["status"] == "succeeded", job.get("error") or job
+        doc = job["result"]["documents"][0]
+        status, full = request(base, "GET", f"/projects/{pid}/documents/{doc['id']}", token)
+        assert status == 200, status
+        text = _ir_text(full["data"])
+        if title:
+            assert full["data"]["title"] == title, full["data"]["title"]
+        missing = [w for w in words if w not in text]
+        assert not missing, f"{filename}: missing {missing} in extracted text: {text[:400]!r}"
+        meta = full["data"].get("metadata") or {}
+        if filename == "bản scan.pdf":
+            assert meta.get("ocr_engine") == "tesseract", meta
+        print(f"document ok: {filename} via {adapter}"
+              f"{' + OCR ' + str(meta.get('ocr_engine')) if meta.get('ocr_pages') else ''} "
+              f"{doc['stats']} in {time.monotonic() - started:.1f}s")
+        if adapter == "docx":
+            docx_id = doc["id"]
+    return docx_id
+
+
+def smoke_publish(base: str, token: str, pid: str, doc_id: str) -> None:
+    """Generate + render the DOCX video, approve it and publish to a mock YouTube."""
+    status, job = request(base, "POST", f"/projects/{pid}/storyboards", token, body={
+        "document_id": doc_id,
+        "settings": {"style": "explainer_16x9", "target_duration_s": 10, "max_scenes": 3}})
+    assert status == 202, status
+    job = wait_job(base, token, job, TIMEOUT_S)
+    assert job["status"] == "succeeded", job
+    vid = job["result"]["storyboard_id"]
+    status, res = request(base, "POST", f"/storyboards/{vid}/render", token, body={})
+    assert status == 202, status
+    job = wait_job(base, token, res["job"], RENDER_TIMEOUT_S)
+    assert job["status"] == "succeeded", job.get("error") or job
+    status, video = request(base, "POST", f"/videos/{vid}/actions", token,
+                            body={"action": "approve", "note": "smoke"})
+    assert status == 200 and video["status"] == "approved", (status, video)
+    status, acc = request(base, "POST", "/social/accounts/mock", token,
+                          body={"platform": "youtube"})
+    assert status == 201, status
+    status, pubs = request(base, "POST", f"/videos/{vid}/publications", token, body={
+        "items": [{"account_id": acc["id"], "schedule": {"mode": "now"}}]})
+    assert status == 201, (status, pubs)
+    pub = pubs[0]
+    deadline = time.monotonic() + TIMEOUT_S
+    while pub["status"] not in ("published", "failed"):
+        assert time.monotonic() < deadline, f"publication stuck in {pub['status']}"
+        time.sleep(0.5)
+        pub = request(base, "GET", f"/publications/{pub['id']}", token)[1]
+    assert pub["status"] == "published", pub
+    status, page = request(base, "GET", pub["remote_url"], None)
+    assert status == 200, status
+    assert "Hướng dẫn trồng cà phê" in page.decode("utf-8"), page[:300]
+    status, video = request(base, "GET", f"/videos/{vid}", token)
+    assert video["status"] == "published", video["status"]
+    print(f"publish ok: mock YouTube {pub['remote_url'].split('?')[0]} "
+          f"(thumbnail {'yes' if pub['meta'].get('thumbnail') else 'no'})")
+
+
 def main() -> int:
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    render = "--render" in sys.argv[1:]
+    argv = sys.argv[1:]
+    fixtures = None
+    if "--documents" in argv:
+        i = argv.index("--documents")
+        fixtures = Path(argv[i + 1]).resolve()
+        del argv[i:i + 2]
+    args = [a for a in argv if not a.startswith("--")]
+    render = "--render" in argv
+    publish = "--publish" in argv
     exe = Path(args[0]).resolve()
     if not exe.is_file():
         print(f"Sidecar not found: {exe}")
@@ -187,6 +306,11 @@ def main() -> int:
         if render:
             assert info["ffmpeg"]["found"], "FFmpeg not found by the sidecar"
             smoke_render(base, token, pid, doc["id"])
+
+        if fixtures is not None:
+            docx_id = smoke_documents(base, token, pid, fixtures)
+            if publish:
+                smoke_publish(base, token, pid, docx_id)
 
         status, res = request(base, "POST", "/secrets/selftest", token,
                               body={"value": "bí mật 123"})
