@@ -300,7 +300,13 @@ export interface SystemInfo {
   secret_store: string;
   workers: number;
   job_types: string[];
-  plugins: Record<string, unknown>;
+  plugins: {
+    input_adapters: string[];
+    providers: Record<string, string[]>;
+    renderers: string[];
+    publishers: string[];
+    errors: { origin: string; error: string }[];
+  };
 }
 
 export type JobEvent =

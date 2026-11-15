@@ -156,6 +156,20 @@ function SystemSettings() {
               {info.dev ? " · chế độ dev" : ""}
             </Row>
             <Row label="Loại job">{info.job_types.join(", ")}</Row>
+            <Row label="Plugin">
+              <div className="space-y-1">
+                <p className="text-xs text-slate-600">
+                  {Object.values(info.plugins.providers).flat().length} nhà cung cấp ·{" "}
+                  {info.plugins.input_adapters.length} adapter · renderer:{" "}
+                  {info.plugins.renderers.join(", ")}
+                </p>
+                {info.plugins.errors.map((e) => (
+                  <p key={e.origin} className="text-xs text-rose-700">
+                    Lỗi nạp {e.origin}: {e.error}
+                  </p>
+                ))}
+              </div>
+            </Row>
           </dl>
         )}
       </Card>
