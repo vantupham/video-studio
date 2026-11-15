@@ -1,5 +1,5 @@
 import { VISUAL_TYPES } from "@ir/storyboard";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { JobProgress } from "../components/JobProgress";
 import { ProviderChoicePicker } from "../components/ProviderChoicePicker";
@@ -281,6 +281,7 @@ export function StoryboardEditorPage() {
   const [renders, setRenders] = useState<RenderRecord[]>([]);
   const [job, setJob] = useState<ActiveJob | null>(null);
   const [running, setRunning] = useState(false);
+  const progressRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -313,6 +314,10 @@ export function StoryboardEditorPage() {
       .then((r) => setInstances(r.instances))
       .catch(() => undefined);
   }, [api, load, loadRenders]);
+
+  useEffect(() => {
+    if (job) progressRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [job]);
 
   const dirty = useMemo(
     () =>
@@ -470,16 +475,18 @@ export function StoryboardEditorPage() {
       <ErrorBox>{error}</ErrorBox>
 
       {job && (
-        <Card
-          title="Tiến trình"
-          actions={
-            <Button variant="ghost" className="text-xs" onClick={() => setJob(null)}>
-              Ẩn
-            </Button>
-          }
-        >
-          <JobProgress key={job.id} jobId={job.id} onFinished={onJobFinished} />
-        </Card>
+        <div ref={progressRef} className="scroll-mt-24">
+          <Card
+            title="Tiến trình"
+            actions={
+              <Button variant="ghost" className="text-xs" onClick={() => setJob(null)}>
+                Ẩn
+              </Button>
+            }
+          >
+            <JobProgress key={job.id} jobId={job.id} onFinished={onJobFinished} />
+          </Card>
+        </div>
       )}
 
       <Card title="Cài đặt dựng">

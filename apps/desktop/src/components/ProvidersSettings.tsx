@@ -75,7 +75,8 @@ export function VoicePicker({
 }) {
   const api = useApi();
   const field = voiceField(type);
-  const current = field ? String(instance.config[field] ?? "") : "";
+  const fallback = field ? type?.config_schema.properties?.[field]?.default : undefined;
+  const current = field ? String(instance.config[field] ?? fallback ?? "") : "";
   const [voices, setVoices] = useState<VoiceInfo[] | null>(null);
   const [voice, setVoice] = useState(current);
   const [error, setError] = useState<string | null>(null);
