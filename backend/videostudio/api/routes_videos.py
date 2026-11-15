@@ -36,11 +36,11 @@ def _lifecycle_error(exc: lifecycle.LifecycleError) -> HTTPException:
     return HTTPException(exc.status_code, exc.message)
 
 
-def _publication_brief(p: Publication) -> dict[str, Any]:
+def _publication_brief(svc: Services, p: Publication) -> dict[str, Any]:
     return {"id": p.id, "platform": p.platform, "publisher_id": p.publisher_id,
             "account_id": p.account_id, "status": p.status, "scheduled_at": p.scheduled_at,
-            "remote_url": p.remote_url, "progress": p.progress, "error": p.error,
-            "published_at": p.published_at}
+            "remote_url": svc.publish.public_url(p.remote_url), "progress": p.progress,
+            "error": p.error, "published_at": p.published_at}
 
 
 def _event_out(e: VideoEvent) -> dict[str, Any]:
@@ -58,7 +58,8 @@ def _video_brief(svc: Services, row: StoryboardRow, project_name: str | None,
     thumb = None
     if latest and latest.outputs.get("thumbnail"):
         thumb = media_url(svc, latest.outputs["thumbnail"])
-    custom_thumb = (row.publish_meta or {}).get("thumbnail", {}).get("path")
+    thumb_meta = (row.publish_meta or {}).get("thumbnail") or {}
+    custom_thumb = thumb_meta.get("custom_path") if thumb_meta.get("mode") == "custom" else None
     if custom_thumb:
         thumb = media_url(svc, custom_thumb)
     return {
@@ -75,7 +76,7 @@ def _video_brief(svc: Services, row: StoryboardRow, project_name: str | None,
         "outdated": bool(latest and (latest.settings or {}).get("content_hash")
                          not in (None, current)),
         "renders": len(done), "rendering": any(r.status in ("queued", "running") for r in main),
-        "publications": [_publication_brief(p) for p in pubs if p.status != "cancelled"],
+        "publications": [_publication_brief(svc, p) for p in pubs if p.status != "cancelled"],
         "created_at": row.created_at, "updated_at": row.updated_at,
     }
 
@@ -158,7 +159,7 @@ def get_video(video_id: str, svc: Services = Depends(get_services)) -> dict[str,
             "render_locked": row.status in lifecycle.RENDER_LOCKED,
             "renders": list(reversed(versions)),
             "events": [_event_out(e) for e in events],
-            "publish_meta": row.publish_meta or {},
+            "publish_meta": svc.publish.meta(video_id),
         })
         return out
 

@@ -69,7 +69,7 @@ class FacebookPagePublisher(Publisher):
     def metadata_schema(self) -> dict[str, Any]:
         return {"type": "object", "properties": {
             "format": {"type": "string", "title": "Kiểu bài đăng", "default": "video",
-                       "enum": ["video", "reels"], "enumNames": ["Video trên Trang", "Reels"]},
+                       "enum": ["video", "reels"], "x-enumLabels": ["Video trên Trang", "Reels"]},
             "upload_captions": {"type": "boolean", "title": "Tải phụ đề SRT lên (video)",
                                 "default": True},
         }}

@@ -124,9 +124,9 @@ class YouTubePublisher(Publisher):
         return {"type": "object", "properties": {
             "privacy": {"type": "string", "title": "Chế độ hiển thị", "default": "public",
                         "enum": ["public", "unlisted", "private"],
-                        "enumNames": ["Công khai", "Không công khai", "Riêng tư"]},
+                        "x-enumLabels": ["Công khai", "Không công khai", "Riêng tư"]},
             "category_id": {"type": "string", "title": "Danh mục", "default": "27",
-                            "enum": list(CATEGORIES), "enumNames": list(CATEGORIES.values())},
+                            "enum": list(CATEGORIES), "x-enumLabels": list(CATEGORIES.values())},
             "made_for_kids": {"type": "boolean", "title": "Video dành cho trẻ em",
                               "default": False},
             "synthetic_media": {"type": "boolean", "default": True,
