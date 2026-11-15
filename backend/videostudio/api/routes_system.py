@@ -37,6 +37,7 @@ async def system_info(svc: Services = Depends(get_services)) -> dict[str, Any]:
         "platform": f"{platform.system()} {platform.release()} ({platform.machine()})",
         "python": sys.version.split()[0],
         "frozen": bool(getattr(sys, "frozen", False)),
+        "utf8_mode": bool(sys.flags.utf8_mode),
         "ffmpeg": ffmpeg.to_dict(),
         "secret_store": svc.secrets.backend_name,
         "workers": svc.settings.workers,

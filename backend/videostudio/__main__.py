@@ -53,6 +53,7 @@ def setup_logging(settings: Settings, level: str) -> None:
         stream.setFormatter(fmt)
         handlers.append(stream)
     logging.basicConfig(level=level.upper(), handlers=handlers, force=True)
+    logging.getLogger("alembic").setLevel(logging.WARNING)
 
 
 def _parent_alive(pid: int) -> bool:
