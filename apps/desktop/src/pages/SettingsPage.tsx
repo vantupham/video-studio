@@ -3,9 +3,11 @@ import { useSearchParams } from "react-router";
 import { BrandingSettings } from "../components/BrandingSettings";
 import { JobProgress } from "../components/JobProgress";
 import { ProvidersSettings } from "../components/ProvidersSettings";
+import { SocialSettings } from "../components/SocialSettings";
 import { Button, Card, ErrorBox } from "../components/ui";
 import { useApi, useBackend } from "../lib/backendContext";
-import type { SystemInfo } from "../lib/types";
+import { applyDesktopPrefs, isTauri } from "../lib/desktop";
+import type { DesktopPrefs, SystemInfo } from "../lib/types";
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -29,10 +31,11 @@ function YesNo({ ok, yes, no }: { ok: boolean; yes: string; no: string }) {
   );
 }
 
-type Tab = "providers" | "branding" | "system";
+type Tab = "providers" | "social" | "branding" | "system";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "providers", label: "Nhà cung cấp" },
+  { id: "social", label: "Tài khoản mạng xã hội" },
   { id: "branding", label: "Thương hiệu" },
   { id: "system", label: "Hệ thống" },
 ];
@@ -45,7 +48,7 @@ export function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold">Cài đặt</h1>
         <p className="text-sm text-slate-600">
-          Nhà cung cấp AI, thương hiệu và thông tin hệ thống.
+          Nhà cung cấp AI, tài khoản mạng xã hội, thương hiệu và hệ thống.
         </p>
       </div>
       <div className="inline-flex rounded-lg bg-slate-100 p-1" role="tablist">
@@ -67,6 +70,7 @@ export function SettingsPage() {
         ))}
       </div>
       {tab === "providers" && <ProvidersSettings />}
+      {tab === "social" && <SocialSettings />}
       {tab === "branding" && <BrandingSettings />}
       {tab === "system" && <SystemSettings />}
     </div>
@@ -116,6 +120,8 @@ function SystemSettings() {
   return (
     <div className="space-y-6">
       <ErrorBox>{error}</ErrorBox>
+
+      <DesktopSettings />
 
       <Card title="Hệ thống">
         {!info ? (
@@ -216,5 +222,103 @@ function SystemSettings() {
         )}
       </Card>
     </div>
+  );
+}
+
+const PREF_LABELS: { key: keyof DesktopPrefs; label: string; hint: string; desktopOnly?: boolean }[] = [
+  {
+    key: "close_to_tray",
+    label: "Đóng cửa sổ thì thu nhỏ xuống khay hệ thống",
+    hint: "Ứng dụng tiếp tục chạy nền để dựng video và đăng theo lịch. Thoát hẳn từ biểu tượng ở khay.",
+    desktopOnly: true,
+  },
+  {
+    key: "autostart",
+    label: "Khởi động cùng Windows",
+    hint: "Cần cho lịch đăng khi bạn hay tắt ứng dụng.",
+    desktopOnly: true,
+  },
+  {
+    key: "start_minimized",
+    label: "Khi tự khởi động, chỉ chạy dưới khay (không mở cửa sổ)",
+    hint: "",
+    desktopOnly: true,
+  },
+  {
+    key: "keep_awake",
+    label: "Không cho máy ngủ khi đang dựng / đăng",
+    hint: "Dùng SetThreadExecutionState của Windows; máy được phép ngủ lại khi xong.",
+  },
+  {
+    key: "wake_for_schedule",
+    label: "Đánh thức máy trước giờ đăng (Task Scheduler)",
+    hint: "Tạo tác vụ VideoStudio\\WakeForPublish có quyền đánh thức máy. Cần bật “Allow wake timers” trong Power Options.",
+  },
+  {
+    key: "notifications",
+    label: "Hiện thông báo Windows khi đăng xong / lỗi",
+    hint: "",
+  },
+];
+
+function DesktopSettings() {
+  const api = useApi();
+  const { queuePaused, setQueuePaused } = useBackend();
+  const [prefs, setPrefs] = useState<DesktopPrefs | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .desktopPrefs()
+      .then(setPrefs)
+      .catch((e: Error) => setError(e.message));
+  }, [api]);
+
+  async function update(patch: Partial<DesktopPrefs>) {
+    setError(null);
+    try {
+      const next = await api.saveDesktopPrefs(patch);
+      setPrefs(next);
+      await applyDesktopPrefs(next);
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    }
+  }
+
+  return (
+    <Card
+      title="Chạy nền & lịch đăng"
+      actions={
+        <Button variant="secondary" className="py-1 text-xs" onClick={() => setQueuePaused(!queuePaused)}>
+          {queuePaused ? "▶ Tiếp tục hàng đợi" : "⏸ Tạm dừng hàng đợi"}
+        </Button>
+      }
+    >
+      {!prefs ? (
+        <p className="text-sm text-slate-500">Đang tải…</p>
+      ) : (
+        <div className="space-y-3">
+          {PREF_LABELS.map((p) => (
+            <label key={p.key} className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 size-4 accent-indigo-600"
+                checked={prefs[p.key]}
+                onChange={(e) => update({ [p.key]: e.target.checked })}
+                data-testid={`pref-${p.key}`}
+              />
+              <span>
+                {p.label}
+                {p.desktopOnly && !isTauri() && (
+                  <span className="ml-1 text-xs text-slate-400">(chỉ trong ứng dụng desktop)</span>
+                )}
+                {p.hint && <span className="block text-xs text-slate-500">{p.hint}</span>}
+              </span>
+            </label>
+          ))}
+          <ErrorBox>{error}</ErrorBox>
+        </div>
+      )}
+    </Card>
   );
 }

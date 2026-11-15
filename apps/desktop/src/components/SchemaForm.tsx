@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { coerceValue, enumOptions, widgetFor, type FormValues } from "../lib/schemaForm";
+import {
+  CLEAR_SECRET,
+  coerceValue,
+  enumOptions,
+  widgetFor,
+  type FormValues,
+} from "../lib/schemaForm";
 import type { JSONSchemaObject, JSONSchemaProperty } from "../lib/types";
 
 export interface FieldOption {
@@ -33,16 +39,23 @@ function SecretInput({
   onChange: (v: string) => void;
 }) {
   const [show, setShow] = useState(false);
+  const clearing = value === CLEAR_SECRET;
   return (
     <div className="flex gap-2">
       <input
         id={id}
-        className="input flex-1 font-mono"
+        className={`input flex-1 font-mono ${clearing ? "bg-rose-50" : ""}`}
         type={show ? "text" : "password"}
         autoComplete="off"
         spellCheck={false}
-        placeholder={stored ? `${stored} — đã lưu, để trống để giữ nguyên` : "Chưa nhập"}
-        value={value}
+        placeholder={
+          clearing
+            ? "Khoá đã lưu sẽ bị xoá khi bấm Lưu"
+            : stored
+              ? `${stored} — đã lưu, để trống để giữ nguyên`
+              : "Chưa nhập"
+        }
+        value={clearing ? "" : value}
         onChange={(e) => onChange(e.target.value)}
       />
       <button
@@ -53,6 +66,20 @@ function SecretInput({
       >
         {show ? "Ẩn" : "Hiện"}
       </button>
+      {stored && (
+        <button
+          type="button"
+          className={`rounded-lg border px-2.5 text-xs ${
+            clearing
+              ? "border-slate-300 text-slate-600 hover:bg-slate-50"
+              : "border-rose-200 text-rose-700 hover:bg-rose-50"
+          }`}
+          onClick={() => onChange(clearing ? "" : CLEAR_SECRET)}
+          title={clearing ? "Giữ lại khoá đã lưu" : "Xoá khoá đã lưu khỏi kho bí mật"}
+        >
+          {clearing ? "Hoàn tác" : "Xoá khoá"}
+        </button>
+      )}
     </div>
   );
 }

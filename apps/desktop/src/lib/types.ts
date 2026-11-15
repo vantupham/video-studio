@@ -48,6 +48,8 @@ export interface Source {
   config: Record<string, unknown>;
   filename: string;
   size_bytes: number;
+  /** Extra files (images…) copied in with a folder / zip / multi-file upload. */
+  attachments?: number;
   created_at: string;
 }
 
@@ -99,7 +101,7 @@ export interface JSONSchemaObject {
   additionalProperties?: boolean;
 }
 
-export type Capability = "llm" | "tts" | "alignment" | "media";
+export type Capability = "llm" | "tts" | "alignment" | "media" | "ocr";
 
 export interface ProviderType {
   id: string;
@@ -227,7 +229,9 @@ export interface RenderRecord {
   aspect: string;
   settings: {
     preview?: boolean;
+    variant?: boolean;
     encoder?: string;
+    transition?: string;
     width?: number;
     height?: number;
     burned_subtitles?: boolean;
@@ -320,3 +324,302 @@ export type JobEvent =
       message: string;
       ts: string;
     };
+
+// ------------------------------------------------------------------ review & publishing
+
+export type VideoStatus =
+  | "draft"
+  | "generating"
+  | "rendered"
+  | "in_review"
+  | "changes_requested"
+  | "approved"
+  | "scheduled"
+  | "publishing"
+  | "published"
+  | "failed";
+
+export type PublicationStatus =
+  | "queued"
+  | "uploading"
+  | "processing"
+  | "scheduled"
+  | "scheduled_remote"
+  | "published"
+  | "failed"
+  | "missed"
+  | "cancelled"
+  | "retry_wait";
+
+export interface PublicationBrief {
+  id: string;
+  platform: Platform;
+  publisher_id: string;
+  account_id: string | null;
+  status: PublicationStatus;
+  scheduled_at: string | null;
+  remote_url: string | null;
+  progress: number;
+  error: string | null;
+  published_at: string | null;
+}
+
+export interface VideoSummary {
+  id: string;
+  project_id: string;
+  project_name: string | null;
+  title: string;
+  status: VideoStatus;
+  status_label: string;
+  status_changed_at: string;
+  style: string;
+  aspect: string;
+  scenes: number;
+  duration_s: number | null;
+  thumbnail_url: string | null;
+  latest_render_id: string | null;
+  approved_render_id: string | null;
+  outdated: boolean;
+  renders: number;
+  rendering: boolean;
+  publications: PublicationBrief[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VideoEvent {
+  id: number;
+  ts: string;
+  action: string;
+  from_status: VideoStatus | null;
+  to_status: VideoStatus | null;
+  actor: string;
+  note: string;
+  render_id: string | null;
+  data: Record<string, unknown>;
+}
+
+export interface TimelineEntry {
+  scene_id: string;
+  kind: "intro" | "scene" | "outro";
+  start: number;
+  end: number;
+}
+
+export interface RenderVersion extends Omit<RenderRecord, "settings"> {
+  version?: number;
+  kind: "main" | "variant" | "preview";
+  content_hash: string | null;
+  current: boolean;
+  approved_content: boolean;
+  timeline: TimelineEntry[];
+}
+
+export interface VideoAction {
+  id: "submit" | "approve" | "request_changes" | "reopen";
+  label: string;
+  note_required: boolean;
+}
+
+export interface VideoDetail extends Omit<VideoSummary, "renders"> {
+  content_hash: string;
+  approved_hash: string | null;
+  actions: VideoAction[];
+  render_locked: boolean;
+  renders: RenderVersion[];
+  events: VideoEvent[];
+  publish_meta: PublishMeta;
+}
+
+export interface VideoLibrary {
+  items: VideoSummary[];
+  counts: Record<VideoStatus, number>;
+  states: { id: VideoStatus; label: string }[];
+}
+
+export interface SceneDiff {
+  scene_id: string;
+  change: "added" | "removed" | "changed" | "same";
+  fields: string[];
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+}
+
+export interface RenderDiff {
+  title_changed: boolean;
+  title: { before: string | null; after: string | null };
+  reordered: boolean;
+  summary: Record<"added" | "removed" | "changed" | "same", number>;
+  scenes: SceneDiff[];
+}
+
+export type Platform = "youtube" | "facebook";
+
+export interface PlatformMeta {
+  title: string;
+  description: string;
+  tags: string[];
+  options: Record<string, unknown>;
+}
+
+export interface PublishMeta {
+  common: { title: string; description: string; tags: string[]; hashtags: string[] };
+  youtube: PlatformMeta;
+  facebook: PlatformMeta;
+  thumbnail: {
+    mode: "auto" | "custom" | "none";
+    frame_s: number | null;
+    show_title: boolean;
+    text: string;
+    custom_path: string | null;
+  };
+}
+
+export interface PublishConstraints {
+  platform: string;
+  format: string;
+  aspect_ratios: string[];
+  preferred_aspect: string | null;
+  min_duration_s: number | null;
+  max_duration_s: number | null;
+  max_file_size_mb: number | null;
+  max_title_len: number | null;
+  max_description_len: number | null;
+  max_description_bytes: number | null;
+  max_tags_chars: number | null;
+  supports_scheduling: boolean;
+  min_schedule_ahead_s: number | null;
+  max_schedule_ahead_s: number | null;
+  supports_captions: boolean;
+  supports_thumbnail: boolean;
+  supports_playlist: boolean;
+  privacy_options: string[];
+  notes: string[];
+}
+
+export interface PublisherInfo {
+  id: string;
+  name: string;
+  platform: Platform;
+  mock: boolean;
+  description: string;
+  metadata_schema: JSONSchemaObject;
+  constraints: PublishConstraints;
+}
+
+export interface SocialAccount {
+  id: string;
+  platform: Platform;
+  publisher_id: string;
+  name: string;
+  external_id: string;
+  kind: "channel" | "page";
+  avatar_url: string | null;
+  status: "connected" | "expired";
+  last_error: string | null;
+  token_expires_at: string | null;
+  warning: string | null;
+  mock: boolean;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface SocialAppConfig {
+  platform: Platform;
+  client_id: string;
+  client_secret: string | null;
+  has_secret: boolean;
+  configured: boolean;
+  testing_mode?: boolean;
+  redirect: string;
+}
+
+export interface OAuthFlow {
+  id: string;
+  platform: Platform;
+  status: "pending" | "exchanging" | "select_pages" | "done" | "error";
+  error: string | null;
+  account_ids: string[];
+  auth_url: string;
+  redirect_uri: string;
+  pages: { id: string; name: string; picture: string | null; category: string | null;
+    tasks: string[] }[];
+}
+
+export interface PublishIssue {
+  level: "error" | "warning" | "info";
+  code: string;
+  message: string;
+  field?: string;
+  fix?: { action: "rerender_aspect" | "use_variant"; aspect: string };
+}
+
+export interface ScheduleInput {
+  mode: "now" | "local" | "platform";
+  at?: string | null;
+}
+
+export interface PublishCheck {
+  account: SocialAccount;
+  publisher: { id: string; name: string; mock: boolean };
+  render: { id: string; aspect: string; duration_s: number | null;
+    size_bytes: number | null } | null;
+  available_aspects: string[];
+  meta: PlatformMeta;
+  constraints: PublishConstraints;
+  issues: PublishIssue[];
+  ok: boolean;
+}
+
+export interface Publication extends PublicationBrief {
+  storyboard_id: string;
+  video_title: string | null;
+  render_id: string | null;
+  account_name: string | null;
+  mock: boolean;
+  meta: Record<string, unknown> & { title?: string; aspect?: string };
+  schedule_mode: "now" | "local" | "platform";
+  next_attempt_at: string | null;
+  attempts: number;
+  remote_id: string | null;
+  warnings: string[];
+  job_id: string | null;
+  created_at: string;
+  updated_at: string;
+  resumable: boolean;
+  thumbnail_url?: string;
+}
+
+export interface MetadataSuggestion {
+  titles: string[];
+  description: string;
+  tags: string[];
+  hashtags: string[];
+}
+
+export interface AppNotification {
+  id: number;
+  ts: string;
+  level: "info" | "success" | "warning" | "error";
+  title: string;
+  message: string;
+  link: string | null;
+  read: boolean;
+  data: Record<string, unknown>;
+}
+
+export interface DesktopPrefs {
+  close_to_tray: boolean;
+  autostart: boolean;
+  start_minimized: boolean;
+  wake_for_schedule: boolean;
+  keep_awake: boolean;
+  notifications: boolean;
+}
+
+export type AppEvent =
+  | { type: "video"; id: string; status: VideoStatus }
+  | ({ type: "publication" } & Publication)
+  | { type: "publication.progress"; id: string; progress: number; message: string | null }
+  | ({ type: "notification" } & AppNotification)
+  | { type: "queue"; paused: boolean };

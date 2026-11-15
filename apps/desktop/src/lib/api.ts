@@ -1,6 +1,20 @@
 import type { BackendInfo } from "./backend";
 import type {
   Adapter,
+  AppNotification,
+  DesktopPrefs,
+  MetadataSuggestion,
+  OAuthFlow,
+  Publication,
+  PublishCheck,
+  PublisherInfo,
+  PublishMeta,
+  RenderDiff,
+  ScheduleInput,
+  SocialAccount,
+  SocialAppConfig,
+  VideoDetail,
+  VideoLibrary,
   AssetRecord,
   Branding,
   Capability,
@@ -26,11 +40,14 @@ import type {
 
 export class ApiError extends Error {
   readonly status: number;
+  /** Raw ``detail`` from the response (e.g. ``{message, issues}`` from publishing). */
+  readonly detail: unknown;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, detail?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -52,6 +69,10 @@ function errorMessage(status: number, body: unknown): string {
 
 export interface NewSourceInput {
   file?: File;
+  /** Folder or multi-file upload: files with their relative paths (Markdown + images). */
+  files?: { file: File; path: string }[];
+  /** Relative path of the main document inside ``files`` (auto-detected when omitted). */
+  main?: string;
   text?: string;
   name?: string;
   adapterId?: string;
@@ -86,7 +107,12 @@ export class ApiClient {
     if (res.status === 204) return undefined as T;
     const isJson = (res.headers.get("content-type") || "").includes("application/json");
     const data: unknown = isJson ? await res.json() : await res.text();
-    if (!res.ok) throw new ApiError(res.status, errorMessage(res.status, data));
+    if (!res.ok) {
+      const detail = data && typeof data === "object" && "detail" in data
+        ? (data as { detail: unknown }).detail
+        : undefined;
+      throw new ApiError(res.status, errorMessage(res.status, data), detail);
+    }
     return data as T;
   }
 
@@ -137,6 +163,11 @@ export class ApiClient {
   addSource(projectId: string, input: NewSourceInput) {
     const form = new FormData();
     if (input.file) form.append("file", input.file, input.file.name);
+    for (const f of input.files ?? []) {
+      form.append("files", f.file, f.file.name);
+      form.append("paths", f.path);
+    }
+    if (input.main) form.append("main", input.main);
     if (input.text !== undefined) form.append("text", input.text);
     if (input.name) form.append("name", input.name);
     if (input.adapterId) form.append("adapter_id", input.adapterId);
@@ -337,11 +368,11 @@ export class ApiClient {
     });
   }
 
-  render(storyboardId: string, preview = false) {
+  render(storyboardId: string, preview = false, aspect?: string) {
     return this.request<{ job: Job; render_id: string }>(
       "POST",
       `/storyboards/${storyboardId}/render`,
-      { preview },
+      { preview, ...(aspect ? { aspect } : {}) },
     );
   }
 
@@ -383,5 +414,210 @@ export class ApiClient {
 
   saveBranding(value: Partial<Branding>) {
     return this.request<Branding>("PUT", "/settings/branding", value);
+  }
+
+  // ---------------------------------------------------------------- videos & review
+
+  listVideos(params: { status?: string; projectId?: string; q?: string; platform?: string } = {}) {
+    const q = new URLSearchParams();
+    if (params.status) q.set("status", params.status);
+    if (params.projectId) q.set("project_id", params.projectId);
+    if (params.q) q.set("q", params.q);
+    if (params.platform) q.set("platform", params.platform);
+    const qs = q.toString();
+    return this.request<VideoLibrary>("GET", `/videos${qs ? `?${qs}` : ""}`);
+  }
+
+  getVideo(id: string) {
+    return this.request<VideoDetail>("GET", `/videos/${id}`);
+  }
+
+  videoAction(id: string, action: string, note = "") {
+    return this.request<VideoDetail>("POST", `/videos/${id}/actions`, { action, note });
+  }
+
+  compareRenders(id: string, a: string, b = "current") {
+    return this.request<RenderDiff>(
+      "GET",
+      `/videos/${id}/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    );
+  }
+
+  // ---------------------------------------------------------------- publishing
+
+  publishMeta(id: string) {
+    return this.request<PublishMeta>("GET", `/videos/${id}/publish-meta`);
+  }
+
+  savePublishMeta(id: string, patch: Partial<PublishMeta> | Record<string, unknown>) {
+    return this.request<PublishMeta>("PUT", `/videos/${id}/publish-meta`, patch);
+  }
+
+  suggestMetadata(id: string, platform: string) {
+    return this.request<MetadataSuggestion>("POST", `/videos/${id}/suggest-metadata`, {
+      platform,
+    });
+  }
+
+  thumbnail(
+    id: string,
+    body: {
+      mode?: string;
+      frame_s?: number | null;
+      show_title?: boolean;
+      text?: string;
+      render_id?: string;
+    } = {},
+  ) {
+    return this.request<{ thumbnail: PublishMeta["thumbnail"]; url: string | null; aspect: string }>(
+      "POST",
+      `/videos/${id}/thumbnail`,
+      body,
+    );
+  }
+
+  uploadThumbnail(id: string, file: File) {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return this.request<{ thumbnail: PublishMeta["thumbnail"]; url: string | null }>(
+      "POST",
+      `/videos/${id}/thumbnail/upload`,
+      form,
+    );
+  }
+
+  validatePublication(
+    id: string,
+    body: { account_id: string; options?: Record<string, unknown>; schedule?: ScheduleInput;
+      render_id?: string },
+  ) {
+    return this.request<PublishCheck>("POST", `/videos/${id}/validate`, body);
+  }
+
+  createPublications(
+    id: string,
+    items: {
+      account_id: string;
+      options?: Record<string, unknown>;
+      schedule?: ScheduleInput;
+      render_id?: string;
+      allow_repost?: boolean;
+    }[],
+  ) {
+    return this.request<Publication[]>("POST", `/videos/${id}/publications`, { items });
+  }
+
+  listPublications(params: { videoId?: string; status?: string } = {}) {
+    const q = new URLSearchParams();
+    if (params.videoId) q.set("video_id", params.videoId);
+    if (params.status) q.set("status", params.status);
+    const qs = q.toString();
+    return this.request<Publication[]>("GET", `/publications${qs ? `?${qs}` : ""}`);
+  }
+
+  cancelPublication(id: string) {
+    return this.request<Publication>("POST", `/publications/${id}/cancel`);
+  }
+
+  retryPublication(id: string) {
+    return this.request<Publication>("POST", `/publications/${id}/retry`);
+  }
+
+  reschedulePublication(id: string, at: string) {
+    return this.request<Publication>("POST", `/publications/${id}/reschedule`, { at });
+  }
+
+  missedSchedules() {
+    return this.request<Publication[]>("GET", "/schedule/missed");
+  }
+
+  resolveMissed(ids: string[], action: "publish_now" | "reschedule" | "skip", at?: string) {
+    return this.request<Publication[]>("POST", "/schedule/missed/resolve", {
+      ids,
+      action,
+      at: at ?? null,
+    });
+  }
+
+  queueState() {
+    return this.request<{ paused: boolean }>("GET", "/queue/state");
+  }
+
+  setQueuePaused(paused: boolean) {
+    return this.request<{ paused: boolean }>("PUT", "/queue/state", { paused });
+  }
+
+  desktopPrefs() {
+    return this.request<DesktopPrefs>("GET", "/settings/desktop");
+  }
+
+  saveDesktopPrefs(patch: Partial<DesktopPrefs>) {
+    return this.request<DesktopPrefs>("PUT", "/settings/desktop", patch);
+  }
+
+  notifications() {
+    return this.request<AppNotification[]>("GET", "/notifications");
+  }
+
+  markNotificationsRead() {
+    return this.request<void>("POST", "/notifications/read");
+  }
+
+  // ---------------------------------------------------------------- social accounts
+
+  socialApps() {
+    return this.request<SocialAppConfig[]>("GET", "/social/apps");
+  }
+
+  saveSocialApp(
+    platform: string,
+    body: { client_id?: string; client_secret?: string; testing_mode?: boolean },
+  ) {
+    return this.request<SocialAppConfig>("PUT", `/social/apps/${platform}`, body);
+  }
+
+  clearSocialAppSecret(platform: string) {
+    return this.request<SocialAppConfig>("DELETE", `/social/apps/${platform}/secret`);
+  }
+
+  socialAccounts() {
+    return this.request<SocialAccount[]>("GET", "/social/accounts");
+  }
+
+  publishers() {
+    return this.request<PublisherInfo[]>("GET", "/social/publishers");
+  }
+
+  connectMockAccount(platform: string) {
+    return this.request<SocialAccount>("POST", "/social/accounts/mock", { platform });
+  }
+
+  disconnectAccount(id: string) {
+    return this.request<void>("DELETE", `/social/accounts/${id}`);
+  }
+
+  connectYouTube(openBrowser = true) {
+    return this.request<OAuthFlow>("POST", "/social/youtube/connect", {
+      open_browser: openBrowser,
+    });
+  }
+
+  oauthFlow(id: string) {
+    return this.request<OAuthFlow>("GET", `/social/oauth/${id}`);
+  }
+
+  connectFacebook() {
+    return this.request<OAuthFlow>("POST", "/social/facebook/connect");
+  }
+
+  completeFacebook(flowId: string, url: string) {
+    return this.request<OAuthFlow>("POST", "/social/facebook/complete", { flow_id: flowId, url });
+  }
+
+  selectFacebookPages(flowId: string, pageIds: string[]) {
+    return this.request<OAuthFlow>("POST", "/social/facebook/pages", {
+      flow_id: flowId,
+      page_ids: pageIds,
+    });
   }
 }

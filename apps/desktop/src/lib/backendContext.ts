@@ -1,6 +1,6 @@
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 import type { ApiClient } from "./api";
-import type { Job, JobLogEntry } from "./types";
+import type { AppEvent, AppNotification, Job, JobLogEntry } from "./types";
 
 export type BackendStatus = "connecting" | "ready" | "error";
 
@@ -14,6 +14,14 @@ export interface BackendContextValue {
   logs: Record<string, JobLogEntry[]>;
   upsertJob: (job: Job) => void;
   retry: () => void;
+  /** Listen to non-job WebSocket events (video / publication / notification / queue). */
+  subscribe: (listener: (event: AppEvent) => void) => () => void;
+  notifications: AppNotification[];
+  markNotificationsRead: () => void;
+  toasts: AppNotification[];
+  dismissToast: (id: number) => void;
+  queuePaused: boolean;
+  setQueuePaused: (paused: boolean) => Promise<void>;
 }
 
 export const BackendContext = createContext<BackendContextValue | null>(null);
@@ -28,6 +36,16 @@ export function useApi(): ApiClient {
   const { api } = useBackend();
   if (!api) throw new Error("Backend is not ready");
   return api;
+}
+
+/** Subscribe to app events for the lifetime of the component. */
+export function useAppEvents(listener: (event: AppEvent) => void): void {
+  const { subscribe } = useBackend();
+  const ref = useRef(listener);
+  useEffect(() => {
+    ref.current = listener;
+  });
+  useEffect(() => subscribe((e) => ref.current(e)), [subscribe]);
 }
 
 export const FINAL_JOB_STATES = new Set(["succeeded", "failed", "cancelled"]);
