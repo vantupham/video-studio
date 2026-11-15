@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router";
 import { useBackend } from "../lib/backendContext";
-import { setTrayPaused } from "../lib/desktop";
+import { applyDesktopPrefs, isTauri, setTrayPaused } from "../lib/desktop";
 import { formatDate } from "../lib/format";
 import type { AppNotification } from "../lib/types";
 import { MissedSchedulesDialog } from "./MissedSchedulesDialog";
@@ -137,6 +137,14 @@ export function Layout({ children }: { children: ReactNode }) {
   useEffect(() => {
     void setTrayPaused(queuePaused);
   }, [queuePaused]);
+
+  useEffect(() => {
+    if (!api || !isTauri()) return;
+    api
+      .desktopPrefs()
+      .then(applyDesktopPrefs)
+      .catch(() => undefined);
+  }, [api]);
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900">

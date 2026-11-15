@@ -62,6 +62,17 @@ def _tesseract_candidates(configured: str | None) -> list[tuple[str, Path]]:
     return out
 
 
+def bundled_tessdata_dirs() -> list[Path]:
+    """``tessdata`` folders shipped next to a bundled Tesseract (fast models)."""
+    out = []
+    env_dir = os.environ.get(ENV_TESSERACT_DIR)
+    if env_dir:
+        out.append(Path(env_dir) / "tessdata")
+    if getattr(sys, "frozen", False):
+        out.append(Path(sys.executable).resolve().parent.parent / "tesseract" / "tessdata")
+    return [d for d in out if d.is_dir()]
+
+
 def find_tesseract(configured: str | None = None) -> tuple[str, str] | None:
     for source, path in _tesseract_candidates(configured):
         if path.is_file():
@@ -188,6 +199,12 @@ class TesseractOCR(OCRProvider):
             dest = directory / f"{lang}.traineddata"
             if dest.is_file() and dest.stat().st_size >= MIN_TRAINEDDATA_BYTES:
                 continue
+            if ctx.get("variant", "fast") == "fast":
+                bundled = next((d / f"{lang}.traineddata" for d in bundled_tessdata_dirs()
+                                if (d / f"{lang}.traineddata").is_file()), None)
+                if bundled is not None:
+                    shutil.copyfile(bundled, dest)
+                    continue
             url = TESSDATA_URL.format(variant=ctx.get("variant", "fast"), lang=lang)
             tmp = dest.with_suffix(".part")
             try:

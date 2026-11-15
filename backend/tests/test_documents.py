@@ -224,7 +224,8 @@ def test_parse_tesseract_tsv_groups_lines_and_drops_noise():
 
 
 @respx.mock
-async def test_tesseract_language_download(tmp_path):
+async def test_tesseract_language_download(tmp_path, monkeypatch):
+    monkeypatch.delenv("VIDEOSTUDIO_TESSERACT_DIR", raising=False)
     provider = TesseractOCR()
     ctx = ProviderContext(config={"variant": "fast"}, models_dir=tmp_path)
     url = TESSDATA_URL.format(variant="fast", lang="vie")
@@ -240,6 +241,26 @@ async def test_tesseract_language_download(tmp_path):
     assert not (tmp_path / "tessdata" / "fast" / "eng.part").exists()
     assert provider.languages(ProviderContext(config={"extra_langs": "eng, x;y"}), "vi") == [
         "vie", "eng"]
+
+
+async def test_tesseract_uses_bundled_fast_models(tmp_path, monkeypatch):
+    bundle = tmp_path / "tesseract"
+    (bundle / "tessdata").mkdir(parents=True)
+    (bundle / "tessdata" / "vie.traineddata").write_bytes(b"v" * 150_000)
+    monkeypatch.setenv("VIDEOSTUDIO_TESSERACT_DIR", str(bundle))
+    provider = TesseractOCR()
+    models = tmp_path / "models"
+    with respx.mock(assert_all_mocked=True) as router:
+        # Every unmocked request fails, so the fast model must come from the bundle.
+        await provider.ensure_languages(ProviderContext(config={"variant": "fast"},
+                                                        models_dir=models), ["vie"])
+        assert (models / "tessdata" / "fast" / "vie.traineddata").read_bytes() == \
+            b"v" * 150_000
+        best = router.get(TESSDATA_URL.format(variant="best", lang="vie")).mock(
+            return_value=httpx.Response(200, content=b"b" * 200_000))
+        await provider.ensure_languages(ProviderContext(config={"variant": "best"},
+                                                        models_dir=models), ["vie"])
+        assert best.call_count == 1  # the bundle only holds the fast models
 
 
 def _png_file(tmp_path: Path) -> Path:
