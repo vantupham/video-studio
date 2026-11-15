@@ -42,3 +42,10 @@ captions:
   box: false
 script:
   scene_seconds: 4
+transitions:
+  type: slideleft            # none | fade | crossfade | slideleft | wipeleft | dissolve | …
+  duration_s: 0.3
+ken_burns:                  # chuyển động chậm cho cảnh ảnh
+  enabled: true
+  zoom: 1.18
+  mode: alternate           # alternate | zoom_in | zoom_out | pan_left | pan_right

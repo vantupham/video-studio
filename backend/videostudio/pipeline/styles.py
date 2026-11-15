@@ -62,6 +62,12 @@ DEFAULTS: dict[str, Any] = {
                  "highlight": "#FACC15", "outline": "#000000", "outline_width": 0.003,
                  "shadow": 0.0015, "box": False},
     "script": {"scene_seconds": 8},
+    # type: none | fade (through black, per scene) | crossfade | any ffmpeg xfade name
+    # (slideleft, wipeleft, dissolve, circleopen, …)
+    "transitions": {"type": "fade", "duration_s": 0.5},
+    # Slow pan/zoom on image scenes. mode: alternate | zoom_in | zoom_out | pan_left |
+    # pan_right
+    "ken_burns": {"enabled": True, "zoom": 1.12, "mode": "alternate"},
 }
 
 RESOLUTIONS = {"16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080)}

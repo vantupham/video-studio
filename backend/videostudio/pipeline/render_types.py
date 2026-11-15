@@ -69,6 +69,9 @@ class RenderResult(BaseModel):
     encoder: str
     subtitles: dict[str, Path] = Field(default_factory=dict)
     thumbnail_path: Path | None = None
+    # [{"scene_id", "kind": intro|scene|outro, "start", "end"}] in seconds
+    timeline: list[dict[str, Any]] = Field(default_factory=list)
+    transition: str = "none"
 
 
 @runtime_checkable
