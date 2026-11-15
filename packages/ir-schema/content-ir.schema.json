@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/vantupham/video-studio/packages/ir-schema/content-ir.schema.json",
+  "title": "ContentIR",
+  "description": "Central intermediate representation produced by every InputAdapter and consumed by script writing, TTS, rendering and publishing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "title", "source", "sections"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "title": { "type": "string" },
+    "source": { "$ref": "#/$defs/Source" },
+    "metadata": { "type": "object", "additionalProperties": true },
+    "sections": { "type": "array", "items": { "$ref": "#/$defs/Section" } },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "Source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "uri"],
+      "properties": {
+        "type": {
+          "enum": ["script", "markdown", "docx", "pdf", "website", "text", "other"]
+        },
+        "uri": { "type": "string", "description": "File path, URL or 'inline:' for pasted text" },
+        "lang": { "type": "string", "default": "vi", "description": "BCP-47 language tag" }
+      }
+    },
+    "Section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "blocks"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "default": "" },
+        "level": { "type": "integer", "minimum": 1, "maximum": 6, "default": 1 },
+        "blocks": { "type": "array", "items": { "$ref": "#/$defs/Block" } }
+      }
+    },
+    "Block": {
+      "oneOf": [
+        { "$ref": "#/$defs/ParagraphBlock" },
+        { "$ref": "#/$defs/HeadingBlock" },
+        { "$ref": "#/$defs/ImageBlock" },
+        { "$ref": "#/$defs/TableBlock" },
+        { "$ref": "#/$defs/ListBlock" },
+        { "$ref": "#/$defs/CodeBlock" },
+        { "$ref": "#/$defs/ScreenRecordingBlock" }
+      ],
+      "discriminator": { "propertyName": "kind" }
+    },
+    "ParagraphBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text"],
+      "properties": {
+        "kind": { "const": "paragraph" },
+        "id": { "type": ["string", "null"] },
+        "meta": { "type": "object" },
+        "text": { "type": "string" }
+      }
+    },
+    "HeadingBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "text", "level"],
+      "properties": {
+        "kind": { "const": "heading" },
+        "id": { "type": ["string", "null"] },
+        "meta": { "type": "object" },
+        "text": { "type": "string" },
+        "level": { "type": "integer", "minimum": 1, "maximum": 6 }
+      }
+    },
+    "ImageBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "src"],
+      "properties": {
+        "kind": { "const": "image" },
+        "id": { "type": ["string", "null"] },
+        "meta": { "type": "object" },
+        "src": { "type": "string" },
+        "alt": { "type": "string" },
+        "caption": { "type": ["string", "null"] }
+      }
+    },
+    "TableBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "table" },
+        "id": { "type": ["string", "null"] },
+        "meta": { "type": "object" },
+        "header": { "type": "array", "items": { "type": "string" } },
+        "rows": {
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "string" } }
+        },
+        "caption": { "type": ["string", "null"] }
+      }
+    },
+    "ListItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string" },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/ListItem" } }
+      }
+    },
+    "ListBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "list" },
+        "id": { "type": ["string", "null"] },
+        "meta": { "type": "object" },
+        "ordered": { "type": "boolean" },
+        "items": { "type": "array", "items": { "$ref": "#/$defs/ListItem" } }
+      }
+    },
+    "CodeBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "code"],
+      "properties": {
+        "kind": { "const": "code" },
+        "id": { "type": ["string", "null"] },
+        "meta": { "type": "object" },
+        "code": { "type": "string" },
+        "language": { "type": ["string", "null"] }
+      }
+    },
+    "ScreenRecordingBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "description": "Placeholder for phase 3: a screen recording of a website made with Playwright.",
+      "properties": {
+        "kind": { "const": "screen_recording" },
+        "id": { "type": ["string", "null"] },
+        "meta": { "type": "object" },
+        "url": { "type": ["string", "null"] },
+        "recipe": { "type": ["string", "null"] },
+        "path": { "type": ["string", "null"] },
+        "duration_s": { "type": ["number", "null"], "minimum": 0 }
+      }
+    }
+  }
+}
