@@ -1,0 +1,232 @@
+{
+  "$defs": {
+    "Overlay": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "default": "text",
+          "enum": [
+            "text",
+            "lower_third"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "position": {
+          "default": "top",
+          "enum": [
+            "top",
+            "center",
+            "bottom"
+          ],
+          "title": "Position",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Overlay",
+      "type": "object"
+    },
+    "Scene": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9_-]{1,32}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "narration": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Narration",
+          "type": "string"
+        },
+        "visual": {
+          "$ref": "#/$defs/Visual"
+        },
+        "overlays": {
+          "items": {
+            "$ref": "#/$defs/Overlay"
+          },
+          "title": "Overlays",
+          "type": "array"
+        },
+        "duration": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "const": "auto",
+              "type": "string"
+            }
+          ],
+          "default": "auto",
+          "description": "'auto' = follow the narration; number = fixed seconds",
+          "title": "Duration"
+        },
+        "source_block_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Block Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "Scene",
+      "type": "object"
+    },
+    "Visual": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "default": "text_card",
+          "enum": [
+            "title_card",
+            "text_card",
+            "image",
+            "stock",
+            "solid"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "subtitle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subtitle"
+        },
+        "bullets": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Bullets",
+          "type": "array"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Image path relative to the data dir (uploaded/IR asset)",
+          "title": "Image"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Stock media search query",
+          "title": "Query"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Background colour #RRGGBB",
+          "title": "Color"
+        }
+      },
+      "title": "Visual",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "title": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "language": {
+      "default": "vi",
+      "title": "Language",
+      "type": "string"
+    },
+    "style": {
+      "default": "explainer_16x9",
+      "title": "Style",
+      "type": "string"
+    },
+    "aspect": {
+      "default": "16:9",
+      "enum": [
+        "16:9",
+        "9:16",
+        "1:1"
+      ],
+      "title": "Aspect",
+      "type": "string"
+    },
+    "scenes": {
+      "items": {
+        "$ref": "#/$defs/Scene"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Scenes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "title",
+    "scenes"
+  ],
+  "title": "Storyboard",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://videostudio.local/schemas/storyboard.schema.json"
+}

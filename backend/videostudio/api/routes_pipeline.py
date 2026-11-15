@@ -35,7 +35,7 @@ ASSET_KINDS = {
 
 
 def _validation(exc: ValidationError) -> HTTPException:
-    return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+    return HTTPException(422,
                          [{"loc": e["loc"], "msg": e["msg"]} for e in exc.errors()])
 
 

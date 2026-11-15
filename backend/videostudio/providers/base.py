@@ -42,6 +42,8 @@ class ProviderContext:
 
 
 class TestResult(BaseModel):
+    __test__ = False  # not a pytest test class
+
     ok: bool
     message: str
     details: dict[str, Any] = Field(default_factory=dict)

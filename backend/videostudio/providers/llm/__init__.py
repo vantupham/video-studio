@@ -489,7 +489,7 @@ def mock_script(payload: dict[str, Any]) -> dict[str, Any]:
         narration = text or ". ".join(bullets)
         scenes.append({
             "narration": _trim_words(narration, per_section),
-            "visual_type": "text_card",
+            "visual_type": "image" if section.get("images") else "text_card",
             "title": section.get("heading") or title,
             "bullets": bullets or [_trim_words(s, 10) for s in _SENTENCE.split(text)[:3] if s],
             "image_query": section.get("heading"),

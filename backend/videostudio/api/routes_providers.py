@@ -55,7 +55,7 @@ def _errors(exc: Exception) -> HTTPException:
     if isinstance(exc, ProviderNotFound):
         return HTTPException(status.HTTP_404_NOT_FOUND, str(exc.args[0]))
     if isinstance(exc, ProviderValidationError):
-        return HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc))
+        return HTTPException(422, str(exc))
     if isinstance(exc, ProviderError):
         return HTTPException(status.HTTP_502_BAD_GATEWAY, exc.to_dict())
     raise exc

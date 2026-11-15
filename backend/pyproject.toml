@@ -61,6 +61,7 @@ packages = ["videostudio"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = ["live: calls real provider APIs; skipped unless credentials are in the environment"]
 
 [tool.ruff]
 line-length = 100
