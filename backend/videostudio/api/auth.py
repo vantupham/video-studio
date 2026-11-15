@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import hmac
 
-from fastapi import HTTPException, Request, WebSocket, status
+from fastapi import Depends, HTTPException, Request, WebSocket, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 TOKEN_HEADER = "X-VideoStudio-Token"
+
+# Declared so the OpenAPI docs (dev only) get an "Authorize" button.
+_bearer = HTTPBearer(auto_error=False)
 
 
 def _token_ok(expected: str, provided: str | None) -> bool:
@@ -25,7 +29,9 @@ def extract_token(request: Request) -> str | None:
     return request.headers.get(TOKEN_HEADER)
 
 
-def require_token(request: Request) -> None:
+def require_token(
+    request: Request, _credentials: HTTPAuthorizationCredentials | None = Depends(_bearer)
+) -> None:
     expected = request.app.state.services.settings.token
     if not _token_ok(expected, extract_token(request)):
         raise HTTPException(

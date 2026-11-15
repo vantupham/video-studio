@@ -56,7 +56,14 @@ def create_app(settings: Settings | None = None, start_workers: bool = True) -> 
             queue.stop()
             engine.dispose()
 
-    app = FastAPI(title="Video Studio backend", version=__version__, lifespan=lifespan)
+    app = FastAPI(
+        title="Video Studio backend",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url="/docs" if settings.dev else None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if settings.dev else None,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(settings.allowed_origins),

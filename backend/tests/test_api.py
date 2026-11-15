@@ -31,6 +31,11 @@ def test_requires_token(client: TestClient, method: str, path: str) -> None:
     assert getattr(client, method)(path, headers=bad).status_code == 401
 
 
+def test_docs_disabled_outside_dev(client: TestClient) -> None:
+    assert client.get("/docs").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
+
+
 def test_health_with_token(client: TestClient, auth: dict) -> None:
     r = client.get("/health", headers=auth)
     assert r.status_code == 200 and r.json()["status"] == "ok"
