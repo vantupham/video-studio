@@ -93,7 +93,9 @@ thử quy trình hoặc chạy test.
 của trình duyệt Edge qua thư viện [edge-tts](https://github.com/rany2/edge-tts): chất lượng tốt,
 có mốc thời gian từng từ, **không cần khoá**. Đây **không phải API chính thức** — Microsoft có
 thể thay đổi hoặc chặn bất cứ lúc nào, không nên dùng cho mục đích thương mại; khi cần ổn định
-hãy dùng Azure AI Speech (cùng bộ giọng).
+hãy dùng Azure AI Speech (cùng bộ giọng). Dịch vụ đôi khi trả lời "không có âm thanh"
+(`NoAudioReceived`) cho một câu hợp lệ: ứng dụng tự thử lại tối đa 4 lần (chờ 1 – 2 – 4 giây)
+trước khi báo lỗi.
 
 **Azure AI Speech** — `api_key`\*, `region`\* (mặc định `southeastasia`), `endpoint`,
 `default_voice`, `rate`. Tạo tài nguyên *Speech* trên
