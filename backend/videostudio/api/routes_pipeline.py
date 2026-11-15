@@ -150,9 +150,13 @@ def _storyboard_out(svc: Services, row: StoryboardRow) -> dict[str, Any]:
         assets[scene_id] = {**{k: v for k, v in asset.items() if k != "words"},
                             "audio_url": media_url(svc, asset["audio"]),
                             "word_count": len(asset.get("words", []))}
+    image_urls = {scene["id"]: media_url(svc, scene["visual"]["image"])
+                  for scene in row.data.get("scenes", [])
+                  if (scene.get("visual") or {}).get("image")}
     return {"id": row.id, "project_id": row.project_id, "document_id": row.document_id,
             "title": row.title, "data": row.data, "settings": row.settings, "assets": assets,
-            "created_at": row.created_at, "updated_at": row.updated_at}
+            "image_urls": image_urls, "created_at": row.created_at,
+            "updated_at": row.updated_at}
 
 
 @router.post("/projects/{project_id}/storyboards", status_code=202)

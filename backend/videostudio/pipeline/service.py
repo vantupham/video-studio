@@ -399,7 +399,7 @@ class PipelineService:
             scenes=scene_media, work_dir=project_dir / "work",
             out_dir=project_dir / "outputs", basename=basename, branding=branding,
             music_path=self._asset_path(gen.music_asset_id), music_volume=gen.music_volume,
-            burn_subtitles=gen.burn_subtitles, preview=preview,
+            burn_subtitles=gen.burn_subtitles and gen.captions, preview=preview,
         )
         result = await self.renderer.render(plan, _sub_ctx(ctx, steps["render"]["start"], 100))
         data_dir = self.settings.data_dir
@@ -413,7 +413,8 @@ class PipelineService:
                          duration_s=round(result.duration_s, 3), size_bytes=size,
                          finished_at=utcnow(),
                          settings={"preview": preview, "encoder": result.encoder,
-                                   "width": result.width, "height": result.height})
+                                   "width": result.width, "height": result.height,
+                                   "burned_subtitles": plan.burn_subtitles})
         ctx.log(f"Xuất xong {result.video_path.name} ({result.duration_s:.1f}s, "
                 f"{size / 1e6:.1f} MB, {result.width}x{result.height}, {result.encoder})")
         return {"render_id": render_id, "outputs": outputs, "duration_s": result.duration_s,

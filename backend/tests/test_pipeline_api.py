@@ -137,6 +137,7 @@ def test_full_render_with_mock_tts_and_scene_cache(client: TestClient, auth, set
     assert render["status"] == "done" and render["size_bytes"] > 0
     assert set(render["outputs"]) >= {"video", "srt", "vtt", "ass", "thumbnail"}
     assert render["outputs"]["video"].startswith(f"projects/{pid}/outputs/")
+    assert render["settings"]["burned_subtitles"] is True
     video = settings.data_dir / render["outputs"]["video"]
     info = probe(video)
     v = next(s for s in info["streams"] if s["codec_type"] == "video")
@@ -163,6 +164,15 @@ def test_full_render_with_mock_tts_and_scene_cache(client: TestClient, auth, set
     assert job2["result"]["tts_cache_hits"] == narrated - 1
     assert len(client.get(f"/projects/{pid}/renders", headers=auth).json()) == 2
 
+    # storyboard images are exposed as media URLs for the editor
+    img = client.post("/assets", headers=auth, data={"kind": "image", "project_id": pid},
+                      files={"file": ("anh.png", _png(), "image/png")}).json()
+    data["scenes"][0]["visual"] = {"type": "image", "image": img["rel_path"]}
+    sb3 = client.put(f"/storyboards/{sb['id']}", headers=auth, json={"data": data}).json()
+    first = data["scenes"][0]["id"]
+    assert list(sb3["image_urls"]) == [first]
+    assert client.get(sb3["image_urls"][first]).status_code == 200
+
     # deleting a render removes its files
     assert client.delete(f"/renders/{r.json()['render_id']}", headers=auth).status_code == 204
     assert not video.exists()
@@ -182,6 +192,16 @@ def test_render_failure_is_recorded(client: TestClient, auth):
     assert "sk-bad" not in job["error"]
     render = client.get(f"/renders/{r.json()['render_id']}", headers=auth).json()
     assert render["status"] == "failed" and render["error"]
+
+
+def _png() -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (32, 18), (20, 120, 200)).save(buf, "PNG")
+    return buf.getvalue()
 
 
 def test_assets_upload_and_branding(client: TestClient, auth):
