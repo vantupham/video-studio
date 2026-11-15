@@ -388,9 +388,10 @@ class FFmpegRenderer:
             else:
                 filters.append(f"{prev}[v{i}]concat=n=2:v=1:a=0{out}")
             prev = out
-        script = work / "xfade.txt"
-        script.write_text(";".join(filters), encoding="utf-8")
-        await run_ffmpeg([*args, "-filter_complex_script", "xfade.txt", "-map", prev,
+        # Inline on purpose: -filter_complex_script is gone from FFmpeg 8 and the
+        # "-/filter_complex file" replacement does not exist before 7.0. The graph
+        # stays well under the Windows command-line limit (MAX_XFADE_SCENES).
+        await run_ffmpeg([*args, "-filter_complex", ";".join(filters), "-map", prev,
                           "-t", f"{total:.3f}", "-c:v", "libx264", "-preset", "ultrafast",
                           "-crf", "14", "-pix_fmt", "yuv420p", "-r", str(fps),
                           "video_only.mp4"], cwd=work, total_s=total, is_cancelled=cancelled)
