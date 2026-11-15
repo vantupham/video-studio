@@ -99,6 +99,7 @@ class JobQueue:
         self._claim_lock = threading.Lock()
         self._cancel_requests: set[str] = set()
         self._cancel_lock = threading.Lock()
+        self._paused = threading.Event()
 
     # ------------------------------------------------------------------ registry
     def register(self, job_type: str, handler: Handler) -> None:
@@ -188,6 +189,18 @@ class JobQueue:
             log.warning("Re-queued %d stale running job(s)", count)
         return count
 
+    @property
+    def paused(self) -> bool:
+        return self._paused.is_set()
+
+    def pause(self) -> None:
+        """Stop claiming new jobs; running jobs continue."""
+        self._paused.set()
+
+    def resume(self) -> None:
+        self._paused.clear()
+        self._wakeup.set()
+
     # ------------------------------------------------------------------ workers
     def start(self) -> None:
         if self._threads:
@@ -229,6 +242,8 @@ class JobQueue:
             loop.close()
 
     def _claim(self) -> JobSnapshot | None:
+        if self._paused.is_set():
+            return None
         with self._claim_lock, self._sf.begin() as s:
             job = s.scalars(
                 select(Job).where(Job.status == QUEUED).order_by(Job.created_at).limit(1)

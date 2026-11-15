@@ -133,7 +133,10 @@ def make_pipeline_jobs(pipeline: PipelineService) -> dict[str, Any]:
         return {"scenes": result["scenes"], "cache_hits": result["cache_hits"]}
 
     async def render_job(job: JobSnapshot, ctx: JobContext) -> dict[str, Any]:
-        return await pipeline.render(job.payload["render_id"], ctx)
+        from videostudio.power import keep_awake
+
+        with keep_awake(f"render {job.payload['render_id']}"):
+            return await pipeline.render(job.payload["render_id"], ctx)
 
     return {"script": script_job, "scene_regen": scene_regen_job, "tts": tts_job,
             "render": render_job}

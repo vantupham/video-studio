@@ -14,6 +14,9 @@ from videostudio.jobs.handlers import register_builtin_handlers
 from videostudio.pipeline.service import PipelineService
 from videostudio.plugins import build_registry
 from videostudio.providers.service import ProviderService
+from videostudio.publishing.accounts import SocialService
+from videostudio.publishing.scheduler import Scheduler
+from videostudio.publishing.service import PublishService
 from videostudio.review import lifecycle
 from videostudio.secretstore import create_secret_store
 
@@ -23,6 +26,8 @@ from . import (
     routes_pipeline,
     routes_projects,
     routes_providers,
+    routes_publish,
+    routes_social,
     routes_system,
     routes_videos,
 )
@@ -57,6 +62,21 @@ def create_app(settings: Settings | None = None, start_workers: bool = True) -> 
         queue.requeue_stale()
         with session_factory.begin() as s:
             lifecycle.reset_stale_generating(s)
+        social = SocialService(session_factory, secrets)
+        key = media.media_key(settings.token)
+        publish = PublishService(settings, session_factory, registry.publishers, queue, bus,
+                                 social, pipeline.styles,
+                                 mock_url=lambda rid: f"/mock-posts/{rid}?k={key}")
+
+        async def publish_job(job, ctx):
+            return await publish.run(job.payload["publication_id"], ctx)
+
+        queue.register("publish", publish_job)
+        publish.requeue_interrupted()
+        publish.detect_missed()
+        if publish.queue_state()["paused"]:
+            queue.pause()
+        scheduler = Scheduler(publish, session_factory, settings.data_dir / "cache")
         app.state.services = Services(
             settings=settings,
             engine=engine,
@@ -67,13 +87,18 @@ def create_app(settings: Settings | None = None, start_workers: bool = True) -> 
             secrets=secrets,
             providers=providers,
             pipeline=pipeline,
+            social=social,
+            publish=publish,
+            scheduler=scheduler,
         )
         if start_workers:
             queue.start()
+            scheduler.start()
         log.info("Backend ready (data dir: %s)", settings.data_dir)
         try:
             yield
         finally:
+            scheduler.stop()
             queue.stop()
             engine.dispose()
 
@@ -99,6 +124,9 @@ def create_app(settings: Settings | None = None, start_workers: bool = True) -> 
     app.include_router(routes_providers.router, dependencies=protected)
     app.include_router(routes_pipeline.router, dependencies=protected)
     app.include_router(routes_videos.router, dependencies=protected)
+    app.include_router(routes_publish.router, dependencies=protected)
+    app.include_router(routes_social.router, dependencies=protected)
+    app.include_router(routes_publish.public_router)
     app.include_router(media.router)
     app.include_router(routes_jobs.ws_router)
     return app

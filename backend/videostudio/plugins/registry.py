@@ -155,6 +155,10 @@ def register_builtins(registry: PluginRegistry) -> None:
     for provider in builtin_providers():
         registry.add_provider(provider)
     registry.add_renderer(FFmpegRenderer())
+    from videostudio.publishing.mock import builtin_publishers
+
+    for publisher in builtin_publishers():
+        registry.add_publisher(publisher)
 
 
 def build_registry(plugins_dir: Path | None = None) -> PluginRegistry:
