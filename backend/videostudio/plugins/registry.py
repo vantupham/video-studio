@@ -140,11 +140,15 @@ class PluginRegistry:
 
 
 def register_builtins(registry: PluginRegistry) -> None:
+    from .adapters.docx import DocxAdapter
     from .adapters.markdown import MarkdownAdapter
+    from .adapters.pdf import PdfAdapter
     from .adapters.script import ScriptAdapter
 
     registry.add_input_adapter(ScriptAdapter())
     registry.add_input_adapter(MarkdownAdapter())
+    registry.add_input_adapter(DocxAdapter())
+    registry.add_input_adapter(PdfAdapter())
     from videostudio.pipeline.renderer_ffmpeg import FFmpegRenderer
     from videostudio.providers import builtin_providers
 
