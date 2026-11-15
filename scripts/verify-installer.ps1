@@ -4,7 +4,8 @@
 .DESCRIPTION
   1. Silent per-user install into a temp folder.
   2. Check the resource layout (backend\videostudio-backend.exe, backend\_internal, ffmpeg\).
-  3. Smoke-test the installed sidecar.
+  3. Smoke-test the installed sidecar, including a render of both styles with the
+     bundled FFmpeg, fonts and style packs (demo LLM + offline mock voice).
   4. Launch the app, check that it starts the sidecar, close the window and check that
      the sidecar is stopped; then kill the app hard and check the watchdog stops it too.
   5. Silent uninstall.
@@ -43,7 +44,7 @@ foreach ($path in @($sidecar, (Join-Path $InstallDir "backend\_internal"), (Join
 
 Write-Host "== Smoke-testing installed sidecar"
 Push-Location (Join-Path $Root "backend")
-uv run python ..\scripts\smoke_sidecar.py $sidecar
+uv run python ..\scripts\smoke_sidecar.py $sidecar --render
 $code = $LASTEXITCODE
 Pop-Location
 if ($code -ne 0) { throw "Installed sidecar smoke test failed" }

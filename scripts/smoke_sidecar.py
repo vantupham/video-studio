@@ -1,10 +1,12 @@
 """Smoke-test the frozen backend sidecar exactly like the Tauri shell launches it.
 
-    python scripts/smoke_sidecar.py <path to videostudio-backend[.exe]>
+    python scripts/smoke_sidecar.py <path to videostudio-backend[.exe]> [--render]
 
 Starts the executable with a random token and ``--port 0``, reads the port from
 stdout, then checks auth, migrations (project CRUD), an ingest job with Vietnamese
-text and the secret store. Uses only the standard library.
+text and the secret store. ``--render`` additionally generates a storyboard with the
+demo LLM and renders both built-in styles with the offline mock voice (needs FFmpeg:
+``VIDEOSTUDIO_FFMPEG_DIR``, ``<install>/ffmpeg`` or PATH). Uses only the standard library.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ import uuid
 from pathlib import Path
 
 TIMEOUT_S = 120
+RENDER_TIMEOUT_S = 600
 
 
 def request(base: str, method: str, path: str, token: str | None, body=None, form=None):
@@ -47,13 +50,61 @@ def request(base: str, method: str, path: str, token: str | None, body=None, for
     try:
         with urllib.request.urlopen(req, timeout=30) as res:
             raw = res.read()
+            if "json" not in (res.headers.get("content-type") or ""):
+                return res.status, raw
             return res.status, json.loads(raw) if raw else None
     except urllib.error.HTTPError as err:
         return err.code, None
 
 
+def wait_job(base: str, token: str, job: dict, timeout: float) -> dict:
+    deadline = time.monotonic() + timeout
+    while job["status"] not in ("succeeded", "failed", "cancelled"):
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"job {job['type']} timed out at {job['progress']}%")
+        time.sleep(0.3)
+        job = request(base, "GET", f"/jobs/{job['id']}", token)[1]
+    return job
+
+
+def smoke_render(base: str, token: str, pid: str, doc_id: str) -> None:
+    status, providers = request(base, "GET", "/providers", token)
+    assert status == 200, status
+    types = {i["type"]: i for i in providers["instances"]}
+    assert {"mock_llm", "edge_tts", "mock_tts", "proportional"} <= set(types), types.keys()
+    assert providers["defaults"]["llm"] == types["mock_llm"]["id"]
+    status, _ = request(base, "POST", f"/providers/{types['mock_tts']['id']}/default", token)
+    assert status == 200, status
+    for style in ("explainer_16x9", "short_9x16"):
+        started = time.monotonic()
+        status, job = request(base, "POST", f"/projects/{pid}/storyboards", token, body={
+            "document_id": doc_id,
+            "settings": {"style": style, "target_duration_s": 10, "max_scenes": 3}})
+        assert status == 202, status
+        job = wait_job(base, token, job, TIMEOUT_S)
+        assert job["status"] == "succeeded", job
+        sid = job["result"]["storyboard_id"]
+        status, res = request(base, "POST", f"/storyboards/{sid}/render", token,
+                              body={"preview": True})
+        assert status == 202, status
+        job = wait_job(base, token, res["job"], RENDER_TIMEOUT_S)
+        assert job["status"] == "succeeded", job.get("error") or job
+        status, render = request(base, "GET", f"/renders/{res['render_id']}", token)
+        assert status == 200 and render["status"] == "done", render
+        assert {"video", "srt", "vtt", "ass", "thumbnail"} <= set(render["outputs"]), render
+        status, head = request(base, "GET", render["urls"]["video"], None)
+        assert status == 200 and len(head) == render["size_bytes"] > 10_000, status
+        status, srt = request(base, "GET", render["urls"]["srt"], None)
+        assert status == 200 and "-->" in srt.decode("utf-8-sig"), status
+        print(f"render ok: {style} {render['settings']['width']}x{render['settings']['height']} "
+              f"{render['duration_s']:.1f}s {render['size_bytes'] / 1e6:.2f} MB "
+              f"encoder={render['settings']['encoder']} in {time.monotonic() - started:.1f}s")
+
+
 def main() -> int:
-    exe = Path(sys.argv[1]).resolve()
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    render = "--render" in sys.argv[1:]
+    exe = Path(args[0]).resolve()
     if not exe.is_file():
         print(f"Sidecar not found: {exe}")
         return 2
@@ -132,6 +183,10 @@ def main() -> int:
         doc = job["result"]["documents"][0]
         assert doc["title"] == "Cảnh 1: Mở đầu", doc
         print(f"ingest ok: {doc['stats']}")
+
+        if render:
+            assert info["ffmpeg"]["found"], "FFmpeg not found by the sidecar"
+            smoke_render(base, token, pid, doc["id"])
 
         status, res = request(base, "POST", "/secrets/selftest", token,
                               body={"value": "bí mật 123"})

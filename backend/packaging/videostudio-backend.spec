@@ -8,7 +8,7 @@
 import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 BACKEND = Path(SPECPATH).resolve().parent
 REPO = BACKEND.parent
@@ -17,12 +17,19 @@ datas = [
     # Alembic loads migration scripts from files, so ship them as data, not bytecode.
     (str(BACKEND / "videostudio" / "db" / "migrations"), "videostudio/db/migrations"),
     (str(REPO / "packages" / "ir-schema" / "content-ir.schema.json"), "videostudio/ir"),
+    # Style packs (style.yaml + Jinja prompts) and the OFL fonts used by cards and libass.
+    (str(BACKEND / "videostudio" / "styles_builtin"), "videostudio/styles_builtin"),
+    (str(BACKEND / "videostudio" / "assets" / "fonts"), "videostudio/assets/fonts"),
+    *collect_data_files("certifi"),
 ]
 
 hiddenimports = (
     collect_submodules("videostudio")
     + collect_submodules("uvicorn")
     + collect_submodules("websockets")
+    + collect_submodules("edge_tts")
+    + collect_submodules("aiohttp")
+    + ["multipart", "python_multipart", "PIL._imagingft", "yaml"]
 )
 
 a = Analysis(
@@ -33,7 +40,9 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter", "pytest", "IPython", "matplotlib"],
+    # faster-whisper / piper are optional extras (models are downloaded at runtime).
+    excludes=["tkinter", "pytest", "IPython", "matplotlib", "respx", "faster_whisper",
+              "ctranslate2", "onnxruntime", "piper", "torch"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)
