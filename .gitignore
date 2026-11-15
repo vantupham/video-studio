@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+backend/build/
+backend/dist/
+backend/dev-migrations.db
+*.egg-info/
+
+# Node / frontend
+node_modules/
+apps/desktop/dist/
+*.tsbuildinfo
+coverage/
+
+# Tauri / Rust
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
+# Sidecar + ffmpeg are produced by scripts/ (never commit binaries)
+apps/desktop/src-tauri/binaries/backend/*
+!apps/desktop/src-tauri/binaries/backend/README.md
+apps/desktop/src-tauri/binaries/ffmpeg/*
+!apps/desktop/src-tauri/binaries/ffmpeg/README.md
+
+# Local data / env
+.dev-data/
+.env
+.env.local
+*.log
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

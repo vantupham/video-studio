@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "title": "Giới thiệu Video Studio",
+  "source": { "type": "markdown", "uri": "inline:", "lang": "vi" },
+  "metadata": { "author": "Phạm Văn Tú" },
+  "sections": [
+    {
+      "id": "s1",
+      "title": "Mở đầu",
+      "level": 1,
+      "blocks": [
+        { "kind": "heading", "text": "Mở đầu", "level": 1 },
+        { "kind": "paragraph", "text": "Xin chào các bạn, hôm nay chúng ta tìm hiểu cách làm video tự động." },
+        { "kind": "image", "src": "images/logo.png", "alt": "Logo" },
+        { "kind": "list", "ordered": true, "items": [{ "text": "Bước một" }, { "text": "Bước hai", "items": [{ "text": "Bước con" }] }] },
+        { "kind": "table", "header": ["Cột A", "Cột B"], "rows": [["1", "2"]] },
+        { "kind": "code", "code": "print('xin chào')", "language": "python" },
+        { "kind": "screen_recording", "url": "https://example.com", "duration_s": 12.5 }
+      ]
+    }
+  ]
+}

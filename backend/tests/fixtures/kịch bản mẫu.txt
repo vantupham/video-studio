@@ -1,0 +1,13 @@
+Cảnh 1: Giới thiệu
+Xin chào các bạn, mình là Tú.
+Hôm nay mình sẽ hướng dẫn các bạn làm video tự động.
+
+Video này dành cho người mới bắt đầu.
+
+Cảnh 2: Nội dung chính
+Đầu tiên, chúng ta chuẩn bị kịch bản bằng tiếng Việt có dấu.
+
+Tiếp theo, phần mềm sẽ đọc kịch bản và tạo giọng nói.
+
+Cảnh 3: Kết thúc
+Cảm ơn các bạn đã xem. Đừng quên đăng ký kênh nhé!
