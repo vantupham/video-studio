@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -47,12 +46,12 @@ def test_pick_encoder_prefers_hardware(monkeypatch) -> None:
     assert ff.pick_h264_encoder("ffmpeg").name == "libx264"
 
 
-@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"),
-                    reason="ffmpeg not installed")
+@pytest.mark.skipif(not ff.detect_ffmpeg().found, reason="ffmpeg not installed")
 def test_probe_real_file(tmp_path: Path) -> None:
+    ffmpeg = ff.detect_ffmpeg().ffmpeg
     out = tmp_path / "thử nghiệm video.mp4"
     subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+        [ffmpeg, "-y", "-loglevel", "error", "-f", "lavfi", "-i",
          "testsrc=size=320x240:rate=10:duration=1", "-pix_fmt", "yuv420p", str(out)],
         check=True,
     )
@@ -60,7 +59,7 @@ def test_probe_real_file(tmp_path: Path) -> None:
     stream = info["streams"][0]
     assert stream["codec_type"] == "video" and stream["width"] == 320
     assert abs(float(info["format"]["duration"]) - 1.0) < 0.2
-    encoders = ff.detect_h264_encoders(shutil.which("ffmpeg"), verify=True)
+    encoders = ff.detect_h264_encoders(ffmpeg, verify=True)
     if encoders:
         assert encoders[-1].name == "libx264" or all(e.hardware for e in encoders)
 

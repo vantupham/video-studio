@@ -1,0 +1,9 @@
+Đây là một cảnh trong video "{{ title }}". Hãy viết lại cảnh này theo yêu cầu: "{{ instruction or 'viết lại cho hay hơn' }}".
+Giữ độ dài lời thoại tương đương (trừ khi yêu cầu khác), giọng {{ tone }}, ngôn ngữ {{ language_name }}.
+{% if previous %}Cảnh trước: "{{ previous }}"{% endif %}
+{% if next %}Cảnh sau: "{{ next }}"{% endif %}
+
+Cảnh hiện tại (JSON):
+```json
+{{ payload_json }}
+```

@@ -1,15 +1,46 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router";
+import { GenerateVideoCard } from "../components/GenerateVideoCard";
 import { IrViewer } from "../components/IrViewer";
 import { JobProgress } from "../components/JobProgress";
+import { RendersList } from "../components/RendersList";
 import { SchemaForm } from "../components/SchemaForm";
 import { Button, Card, ErrorBox, StatusBadge } from "../components/ui";
+import { ApiError } from "../lib/api";
 import { useApi } from "../lib/backendContext";
 import { formatBytes, formatDate } from "../lib/format";
+import { JOB_TYPE_LABELS } from "../lib/labels";
 import { defaultsFromSchema, type FormValues } from "../lib/schemaForm";
-import type { Adapter, IRDocument, Job, ProjectDetail } from "../lib/types";
+import type {
+  Adapter,
+  IRDocument,
+  Job,
+  ProjectDetail,
+  RenderRecord,
+  StoryboardSummary,
+} from "../lib/types";
 
-type InputMode = "text" | "file";
+type InputMode = "text" | "file" | "folder";
+
+const DOC_EXTS = [".md", ".markdown", ".txt", ".docx", ".pdf"];
+const FILE_ACCEPT =
+  ".md,.markdown,.txt,.docx,.pdf,.zip,.png,.jpg,.jpeg,.webp,.gif,.svg,text/markdown,text/plain";
+
+function extOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot).toLowerCase() : "";
+}
+
+function relPath(f: File): string {
+  return (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
+}
+
+/** Main document of a multi-file pick: README/index first, then the first document. */
+function guessMain(files: File[]): string {
+  const docs = files.map(relPath).filter((p) => DOC_EXTS.includes(extOf(p)));
+  const preferred = docs.find((p) => /(^|\/)(readme|index)\.(md|markdown)$/i.test(p));
+  return preferred ?? [...docs].sort((a, b) => a.split("/").length - b.split("/").length)[0] ?? "";
+}
 
 const SAMPLE_SCRIPT = `Cảnh 1: Giới thiệu
 Xin chào các bạn! Hôm nay mình sẽ hướng dẫn cách biến một tài liệu thành video có thuyết minh tiếng Việt.
@@ -20,9 +51,9 @@ Cảnh 2: Các bước thực hiện
 Cảnh 3: Kết thúc
 Cảm ơn các bạn đã theo dõi. Hẹn gặp lại!`;
 
-function adapterForFile(adapters: Adapter[], file: File): Adapter | undefined {
-  const dot = file.name.lastIndexOf(".");
-  const ext = dot >= 0 ? file.name.slice(dot).toLowerCase() : "";
+function adapterForName(adapters: Adapter[], name: string): Adapter | undefined {
+  const ext = extOf(name);
+  if (ext === ".zip") return adapters.find((a) => a.id === "markdown");
   return adapters.find((a) => a.file_extensions.includes(ext));
 }
 
@@ -35,7 +66,9 @@ export function ProjectDetailPage() {
 
   const [mode, setMode] = useState<InputMode>("text");
   const [text, setText] = useState("");
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [mainPath, setMainPath] = useState("");
+  const folderRef = useRef<HTMLInputElement>(null);
   const [sourceName, setSourceName] = useState("");
   const [adapterId, setAdapterId] = useState("script");
   const [config, setConfig] = useState<FormValues>({});
@@ -45,16 +78,28 @@ export function ProjectDetailPage() {
   const [history, setHistory] = useState<Job[]>([]);
   const [docId, setDocId] = useState<string | null>(null);
   const [doc, setDoc] = useState<IRDocument | null>(null);
-  const [preview, setPreview] = useState<{ id: string; content: string } | null>(null);
+  const [preview, setPreview] = useState<{
+    id: string;
+    content: string;
+  } | null>(null);
+  const [storyboards, setStoryboards] = useState<StoryboardSummary[]>([]);
+  const [renders, setRenders] = useState<RenderRecord[]>([]);
 
   const adapter = useMemo(() => adapters.find((a) => a.id === adapterId), [adapters, adapterId]);
 
   const reload = useCallback(
     () =>
-      Promise.all([api.getProject(projectId), api.listJobs({ projectId, limit: 8 })])
-        .then(([p, jobs]) => {
+      Promise.all([
+        api.getProject(projectId),
+        api.listJobs({ projectId, limit: 8 }),
+        api.listStoryboards(projectId),
+        api.listRenders(projectId),
+      ])
+        .then(([p, jobs, sbs, rs]) => {
           setProject(p);
           setHistory(jobs);
+          setStoryboards(sbs);
+          setRenders(rs);
           return p;
         })
         .catch((e: Error) => {
@@ -69,7 +114,9 @@ export function ProjectDetailPage() {
       if (p?.documents[0]) setDocId(p.documents[0].id);
     });
     api.listJobs({ projectId, limit: 1 }).then((jobs) => {
-      const active = jobs.find((j) => j.status === "queued" || j.status === "running");
+      const active = jobs.find(
+        (j) => j.type === "ingest" && (j.status === "queued" || j.status === "running"),
+      );
       if (active) setJobId(active.id);
     });
   }, [api, projectId, reload]);
@@ -97,18 +144,32 @@ export function ProjectDetailPage() {
       .catch((e: Error) => setError(e.message));
   }, [api, projectId, docId]);
 
+  useEffect(() => {
+    folderRef.current?.setAttribute("webkitdirectory", "");
+  }, [mode]);
+
   function chooseMode(next: InputMode) {
     setMode(next);
+    setFiles([]);
+    setMainPath("");
     if (next === "text") selectAdapter("script", adapters);
-    else if (file) selectAdapter(adapterForFile(adapters, file)?.id ?? "script", adapters);
   }
 
-  function onFile(f: File | null) {
-    setFile(f);
-    if (f) {
-      selectAdapter(adapterForFile(adapters, f)?.id ?? "script", adapters);
-      if (!sourceName) setSourceName(f.name);
+  function onFiles(list: FileList | null) {
+    const picked = Array.from(list ?? []);
+    setFiles(picked);
+    const main = picked.length === 1 ? picked[0].name : guessMain(picked);
+    setMainPath(main);
+    if (main) selectAdapter(adapterForName(adapters, main)?.id ?? "script", adapters);
+    if (!sourceName && picked.length > 0) {
+      const top = relPath(picked[0]).split("/");
+      setSourceName(mode === "folder" && top.length > 1 ? top[0] : (main || picked[0].name));
     }
+  }
+
+  function onMainChange(path: string) {
+    setMainPath(path);
+    selectAdapter(adapterForName(adapters, path)?.id ?? "script", adapters);
   }
 
   async function onAddSource(e: FormEvent) {
@@ -116,15 +177,21 @@ export function ProjectDetailPage() {
     setAdding(true);
     setError(null);
     try {
+      const bundle = mode === "folder" || files.length > 1;
       await api.addSource(projectId, {
         text: mode === "text" ? text : undefined,
-        file: mode === "file" ? (file ?? undefined) : undefined,
+        file: mode === "file" && !bundle ? files[0] : undefined,
+        files: mode !== "text" && bundle
+          ? files.map((f) => ({ file: f, path: relPath(f) }))
+          : undefined,
+        main: bundle && mainPath ? mainPath : undefined,
         name: sourceName.trim() || undefined,
         adapterId,
         config,
       });
       setText("");
-      setFile(null);
+      setFiles([]);
+      setMainPath("");
       setSourceName("");
       await reload();
     } catch (err) {
@@ -155,8 +222,18 @@ export function ProjectDetailPage() {
       setPreview(null);
       return;
     }
-    const content = await api.sourceContent(projectId, sourceId);
-    setPreview({ id: sourceId, content });
+    try {
+      const content = await api.sourceContent(projectId, sourceId);
+      setPreview({ id: sourceId, content });
+    } catch (e) {
+      setPreview({
+        id: sourceId,
+        content:
+          e instanceof ApiError && e.status === 415
+            ? e.message
+            : `Không xem trước được: ${(e as Error).message}`,
+      });
+    }
   }
 
   async function removeSource(sourceId: string) {
@@ -166,10 +243,16 @@ export function ProjectDetailPage() {
   }
 
   if (!project) {
-    return error ? <ErrorBox>{error}</ErrorBox> : <p className="text-sm text-slate-500">Đang tải…</p>;
+    return error ? (
+      <ErrorBox>{error}</ErrorBox>
+    ) : (
+      <p className="text-sm text-slate-500">Đang tải…</p>
+    );
   }
 
-  const canAdd = mode === "text" ? text.trim().length > 0 : file !== null;
+  const canAdd = mode === "text" ? text.trim().length > 0 : files.length > 0;
+  const docChoices = files.map(relPath).filter((p) => DOC_EXTS.includes(extOf(p)));
+  const images = files.length - docChoices.length;
   const tabClass = (m: InputMode) =>
     `rounded-md px-3 py-1.5 text-sm font-medium ${mode === m ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"}`;
 
@@ -192,7 +275,10 @@ export function ProjectDetailPage() {
               Dán kịch bản
             </button>
             <button type="button" className={tabClass("file")} onClick={() => chooseMode("file")}>
-              Chọn file (.md / .txt)
+              Chọn file
+            </button>
+            <button type="button" className={tabClass("folder")} onClick={() => chooseMode("folder")}>
+              Chọn thư mục
             </button>
           </div>
 
@@ -221,19 +307,63 @@ export function ProjectDetailPage() {
           ) : (
             <div className="flex flex-col gap-1">
               <label htmlFor="source-file" className="text-sm font-medium">
-                File
+                {mode === "folder" ? "Thư mục (Markdown + ảnh)" : "File"}
               </label>
-              <input
-                id="source-file"
-                type="file"
-                accept=".md,.markdown,.txt,text/markdown,text/plain"
-                className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
-                onChange={(e) => onFile(e.target.files?.[0] ?? null)}
-              />
-              {file && (
+              {mode === "folder" ? (
+                <input
+                  key="folder"
+                  ref={folderRef}
+                  id="source-file"
+                  type="file"
+                  multiple
+                  className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
+                  onChange={(e) => onFiles(e.target.files)}
+                />
+              ) : (
+                <input
+                  key="file"
+                  id="source-file"
+                  type="file"
+                  multiple
+                  accept={FILE_ACCEPT}
+                  className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-indigo-700 hover:file:bg-indigo-100"
+                  onChange={(e) => onFiles(e.target.files)}
+                />
+              )}
+              <p className="text-xs text-slate-500">
+                {mode === "folder"
+                  ? "Chọn thư mục chứa file .md và ảnh; đường dẫn ảnh tương đối trong Markdown được giữ nguyên."
+                  : "Markdown, TXT, Word (.docx), PDF (cả bản scan — OCR tiếng Việt), hoặc .zip gồm Markdown + ảnh. Chọn nhiều file để gửi Markdown kèm ảnh."}
+              </p>
+              {files.length === 1 && (
                 <p className="text-xs text-slate-500">
-                  {file.name} · {formatBytes(file.size)}
+                  {files[0].name} · {formatBytes(files[0].size)}
                 </p>
+              )}
+              {files.length > 1 && (
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                  <span>
+                    {files.length} file ({docChoices.length} tài liệu, {images} ảnh/khác) ·{" "}
+                    {formatBytes(files.reduce((n, f) => n + f.size, 0))}
+                  </span>
+                  {docChoices.length > 0 && (
+                    <label className="flex items-center gap-1">
+                      Tài liệu chính:
+                      <select
+                        className="input w-auto py-1 text-xs"
+                        value={mainPath}
+                        onChange={(e) => onMainChange(e.target.value)}
+                        aria-label="Tài liệu chính"
+                      >
+                        {docChoices.map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -276,7 +406,12 @@ export function ProjectDetailPage() {
               <legend className="px-1 text-sm font-semibold text-slate-700">
                 Tuỳ chọn của adapter “{adapter.name}”
               </legend>
-              <SchemaForm schema={adapter.config_schema} value={config} onChange={setConfig} />
+              <SchemaForm
+                schema={adapter.config_schema}
+                value={config}
+                onChange={setConfig}
+                emptyText="Adapter này không có tuỳ chọn."
+              />
             </fieldset>
           )}
 
@@ -308,7 +443,9 @@ export function ProjectDetailPage() {
                   </span>
                   <span className="font-medium">{s.name}</span>
                   <span className="text-xs text-slate-500">
-                    {s.adapter_id} · {formatBytes(s.size_bytes)} · {formatDate(s.created_at)}
+                    {s.adapter_id} · {formatBytes(s.size_bytes)}
+                    {s.attachments ? ` · ${s.attachments} tệp đính kèm` : ""} ·{" "}
+                    {formatDate(s.created_at)}
                   </span>
                   <div className="ml-auto flex gap-1">
                     <Button variant="ghost" className="text-xs" onClick={() => togglePreview(s.id)}>
@@ -371,6 +508,61 @@ export function ProjectDetailPage() {
         )}
       </Card>
 
+      {project.documents.length > 0 && (
+        <GenerateVideoCard projectId={projectId} documents={project.documents} />
+      )}
+
+      {storyboards.length > 0 && (
+        <Card title={`Storyboard (${storyboards.length})`}>
+          <ul className="divide-y divide-slate-100" data-testid="storyboards">
+            {storyboards.map((sb) => (
+              <li key={sb.id} className="flex flex-wrap items-center gap-3 py-2 text-sm">
+                <Link
+                  to={`/projects/${projectId}/storyboards/${sb.id}`}
+                  className="font-medium text-indigo-700 hover:underline"
+                >
+                  {sb.title}
+                </Link>
+                <span className="text-xs text-slate-500">
+                  {sb.style} · {sb.aspect} · {sb.scenes} cảnh · {formatDate(sb.updated_at)}
+                </span>
+                <div className="ml-auto flex gap-1">
+                  <Link
+                    to={`/projects/${projectId}/storyboards/${sb.id}`}
+                    className="rounded-lg px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    Mở trình chỉnh sửa
+                  </Link>
+                  <Link
+                    to={`/videos/${sb.id}`}
+                    className="rounded-lg px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                  >
+                    Duyệt &amp; đăng
+                  </Link>
+                  <Button
+                    variant="ghost"
+                    className="text-xs"
+                    onClick={async () => {
+                      if (!window.confirm("Xoá storyboard này?")) return;
+                      await api.deleteStoryboard(sb.id).catch((e: Error) => setError(e.message));
+                      await reload();
+                    }}
+                  >
+                    Xoá
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {renders.length > 0 && (
+        <Card title={`Video đã dựng (${renders.length})`}>
+          <RendersList renders={renders} onDeleted={reload} />
+        </Card>
+      )}
+
       {history.length > 0 && (
         <Card title="Lịch sử job">
           <ul className="space-y-2 text-sm">
@@ -378,7 +570,7 @@ export function ProjectDetailPage() {
               <li key={j.id} className="flex items-center gap-3">
                 <StatusBadge status={j.status} />
                 <span className="font-mono text-xs text-slate-500">{j.id.slice(0, 8)}</span>
-                <span>{j.type}</span>
+                <span>{JOB_TYPE_LABELS[j.type] ?? j.type}</span>
                 <span className="ml-auto text-xs text-slate-500">{formatDate(j.created_at)}</span>
               </li>
             ))}

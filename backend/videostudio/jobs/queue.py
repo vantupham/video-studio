@@ -99,6 +99,7 @@ class JobQueue:
         self._claim_lock = threading.Lock()
         self._cancel_requests: set[str] = set()
         self._cancel_lock = threading.Lock()
+        self._paused = threading.Event()
 
     # ------------------------------------------------------------------ registry
     def register(self, job_type: str, handler: Handler) -> None:
@@ -188,6 +189,18 @@ class JobQueue:
             log.warning("Re-queued %d stale running job(s)", count)
         return count
 
+    @property
+    def paused(self) -> bool:
+        return self._paused.is_set()
+
+    def pause(self) -> None:
+        """Stop claiming new jobs; running jobs continue."""
+        self._paused.set()
+
+    def resume(self) -> None:
+        self._paused.clear()
+        self._wakeup.set()
+
     # ------------------------------------------------------------------ workers
     def start(self) -> None:
         if self._threads:
@@ -229,6 +242,8 @@ class JobQueue:
             loop.close()
 
     def _claim(self) -> JobSnapshot | None:
+        if self._paused.is_set():
+            return None
         with self._claim_lock, self._sf.begin() as s:
             job = s.scalars(
                 select(Job).where(Job.status == QUEUED).order_by(Job.created_at).limit(1)
@@ -276,10 +291,19 @@ class JobQueue:
             else:
                 self._finish(snap.id, CANCELLED, message="Đã huỷ", log_msg="Cancelled")
         except Exception as exc:  # noqa: BLE001
-            log.exception("Job %s failed", snap.id)
-            self._log(snap.id, traceback.format_exc(), "error")
-            self._finish(snap.id, FAILED, message="Lỗi", error=f"{type(exc).__name__}: {exc}",
-                         log_msg="Failed")
+            user_message = getattr(exc, "user_message", None)
+            if user_message is None and type(exc).__module__.startswith("videostudio.providers"):
+                user_message = str(exc)
+            if user_message is not None:
+                # expected failures (bad key, quota, timeout…): no traceback noise
+                log.warning("Job %s failed: %s", snap.id, user_message)
+                self._log(snap.id, user_message, "error")
+                error = user_message
+            else:
+                log.exception("Job %s failed", snap.id)
+                self._log(snap.id, traceback.format_exc(), "error")
+                error = f"{type(exc).__name__}: {exc}"
+            self._finish(snap.id, FAILED, message="Lỗi", error=error, log_msg="Failed")
         else:
             self._finish(snap.id, SUCCEEDED, message="Hoàn tất", result=result or {},
                          progress=100, log_msg="Succeeded")

@@ -20,7 +20,9 @@ from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Any
 
-from .base import InputAdapter, LLMProvider, Publisher, Renderer, SourceRef, TTSProvider
+from videostudio.providers.base import BaseProvider
+
+from .base import InputAdapter, Publisher, Renderer, SourceRef
 
 log = logging.getLogger(__name__)
 
@@ -36,8 +38,8 @@ class PluginLoadError:
 @dataclass
 class PluginRegistry:
     input_adapters: dict[str, InputAdapter] = field(default_factory=dict)
-    llm_providers: dict[str, LLMProvider] = field(default_factory=dict)
-    tts_providers: dict[str, TTSProvider] = field(default_factory=dict)
+    # Provider *types* of every capability (llm, tts, alignment, media), keyed by type id.
+    providers: dict[str, BaseProvider] = field(default_factory=dict)
     renderers: dict[str, Renderer] = field(default_factory=dict)
     publishers: dict[str, Publisher] = field(default_factory=dict)
     origins: dict[str, str] = field(default_factory=dict)
@@ -45,7 +47,7 @@ class PluginRegistry:
     _current_origin: str = "builtin"
 
     def _add(self, bucket: dict[str, Any], proto: type, plugin: Any, kind: str) -> None:
-        if not isinstance(plugin, proto):
+        if not isinstance(plugin, proto) or not getattr(plugin, "id", None):
             raise TypeError(f"{plugin!r} does not implement {proto.__name__}")
         if plugin.id in bucket:
             log.warning("%s %r from %s overrides an existing one", kind, plugin.id,
@@ -56,11 +58,17 @@ class PluginRegistry:
     def add_input_adapter(self, adapter: InputAdapter) -> None:
         self._add(self.input_adapters, InputAdapter, adapter, "input_adapter")
 
-    def add_llm_provider(self, provider: LLMProvider) -> None:
-        self._add(self.llm_providers, LLMProvider, provider, "llm_provider")
+    def add_provider(self, provider: BaseProvider) -> None:
+        """Register a provider type (subclass of ``LLMProvider``, ``TTSProvider``,
+        ``AlignmentProvider`` or ``MediaProvider``)."""
+        self._add(self.providers, BaseProvider, provider, "provider")
 
-    def add_tts_provider(self, provider: TTSProvider) -> None:
-        self._add(self.tts_providers, TTSProvider, provider, "tts_provider")
+    # Kept for plugin code written against the phase-0 API.
+    add_llm_provider = add_provider
+    add_tts_provider = add_provider
+
+    def providers_for(self, capability: str) -> list[BaseProvider]:
+        return [p for p in self.providers.values() if p.capability == capability]
 
     def add_renderer(self, renderer: Renderer) -> None:
         self._add(self.renderers, Renderer, renderer, "renderer")
@@ -132,11 +140,25 @@ class PluginRegistry:
 
 
 def register_builtins(registry: PluginRegistry) -> None:
+    from .adapters.docx import DocxAdapter
     from .adapters.markdown import MarkdownAdapter
+    from .adapters.pdf import PdfAdapter
     from .adapters.script import ScriptAdapter
 
     registry.add_input_adapter(ScriptAdapter())
     registry.add_input_adapter(MarkdownAdapter())
+    registry.add_input_adapter(DocxAdapter())
+    registry.add_input_adapter(PdfAdapter())
+    from videostudio.pipeline.renderer_ffmpeg import FFmpegRenderer
+    from videostudio.providers import builtin_providers
+
+    for provider in builtin_providers():
+        registry.add_provider(provider)
+    registry.add_renderer(FFmpegRenderer())
+    from videostudio.publishing.mock import builtin_publishers
+
+    for publisher in builtin_publishers():
+        registry.add_publisher(publisher)
 
 
 def build_registry(plugins_dir: Path | None = None) -> PluginRegistry:

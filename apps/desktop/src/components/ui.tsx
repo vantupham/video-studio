@@ -83,3 +83,60 @@ export function ErrorBox({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+export function Pill({ className = "", children }: { className?: string; children: ReactNode }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${className}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+export function Modal({
+  title,
+  children,
+  onClose,
+  footer,
+  wide = false,
+}: {
+  title: ReactNode;
+  children: ReactNode;
+  onClose: () => void;
+  footer?: ReactNode;
+  wide?: boolean;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      onKeyDown={(e) => e.key === "Escape" && onClose()}
+    >
+      <div
+        className={`flex max-h-[90vh] w-full flex-col rounded-xl bg-white shadow-xl ${
+          wide ? "max-w-3xl" : "max-w-lg"
+        }`}
+      >
+        <header className="flex items-center justify-between border-b border-slate-100 px-5 py-3">
+          <h2 className="text-base font-semibold">{title}</h2>
+          <button
+            type="button"
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            onClick={onClose}
+            aria-label="Đóng"
+          >
+            ✕
+          </button>
+        </header>
+        <div className="overflow-y-auto p-5">{children}</div>
+        {footer && (
+          <footer className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+            {footer}
+          </footer>
+        )}
+      </div>
+    </div>
+  );
+}

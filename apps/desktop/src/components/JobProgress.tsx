@@ -1,11 +1,56 @@
 import { useEffect, useRef } from "react";
 import { FINAL_JOB_STATES, useApi, useJob } from "../lib/backendContext";
+import { JOB_TYPE_LABELS } from "../lib/labels";
+import type { Job, JobStep } from "../lib/types";
 import { Button, StatusBadge } from "./ui";
 
-const JOB_TYPE_LABELS: Record<string, string> = {
-  ingest: "Phân tích nội dung (ingest)",
-  demo: "Job demo",
+type StepState = "done" | "active" | "pending" | "failed";
+
+function stepStates(job: Job, steps: JobStep[]): StepState[] {
+  return steps.map((s) => {
+    if (job.status === "succeeded") return "done";
+    if (job.progress >= s.end && s.end < 100) return "done";
+    if (job.progress >= s.start) {
+      if (job.status === "failed" || job.status === "cancelled") return "failed";
+      return "active";
+    }
+    return "pending";
+  });
+}
+
+const STEP_STYLES: Record<StepState, string> = {
+  done: "border-emerald-300 bg-emerald-50 text-emerald-800",
+  active: "border-indigo-400 bg-indigo-50 text-indigo-800 animate-pulse",
+  pending: "border-slate-200 bg-white text-slate-400",
+  failed: "border-rose-300 bg-rose-50 text-rose-800",
 };
+
+const STEP_ICONS: Record<StepState, string> = {
+  done: "✓",
+  active: "●",
+  pending: "○",
+  failed: "✕",
+};
+
+export function JobSteps({ job }: { job: Job }) {
+  const steps = Array.isArray(job.payload?.steps) ? (job.payload.steps as JobStep[]) : [];
+  if (steps.length === 0) return null;
+  const states = stepStates(job, steps);
+  return (
+    <ol className="flex flex-wrap gap-2" data-testid="job-steps">
+      {steps.map((s, i) => (
+        <li
+          key={s.id}
+          data-state={states[i]}
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${STEP_STYLES[states[i]]}`}
+        >
+          <span aria-hidden>{STEP_ICONS[states[i]]}</span>
+          {s.label}
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 export function JobProgress({ jobId, onFinished }: { jobId: string; onFinished?: () => void }) {
   const api = useApi();
@@ -54,6 +99,7 @@ export function JobProgress({ jobId, onFinished }: { jobId: string; onFinished?:
           </Button>
         )}
       </div>
+      <JobSteps job={job} />
       <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
         <div
           className={`h-full rounded-full transition-all duration-300 ${barColor}`}

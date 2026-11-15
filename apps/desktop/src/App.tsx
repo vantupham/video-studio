@@ -5,7 +5,11 @@ import { Button } from "./components/ui";
 import { useBackend } from "./lib/backendContext";
 import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { PublicationsPage } from "./pages/PublicationsPage";
+import { ReviewPage } from "./pages/ReviewPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { StoryboardEditorPage } from "./pages/StoryboardEditorPage";
+import { VideoLibraryPage } from "./pages/VideoLibraryPage";
 
 function Gate() {
   const { status, error, attempts, retry } = useBackend();
@@ -40,6 +44,13 @@ function Gate() {
       <Routes>
         <Route path="/" element={<ProjectsPage />} />
         <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+        <Route
+          path="/projects/:projectId/storyboards/:storyboardId"
+          element={<StoryboardEditorPage />}
+        />
+        <Route path="/videos" element={<VideoLibraryPage />} />
+        <Route path="/videos/:videoId" element={<ReviewPage />} />
+        <Route path="/publications" element={<PublicationsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </Layout>

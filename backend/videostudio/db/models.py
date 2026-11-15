@@ -44,6 +44,8 @@ class Project(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
+    # Per-project overrides: style, aspect, providers (instance/model/voice), …
+    settings: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utcnow, onupdate=utcnow
@@ -70,6 +72,8 @@ class Source(Base):
     # Path relative to the data dir, always stored with forward slashes.
     rel_path: Mapped[str] = mapped_column(String(1024))
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    # Extra files uploaded with the document (images of a Markdown folder/zip).
+    attachments: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     project: Mapped[Project] = relationship(back_populates="sources")
@@ -129,3 +133,167 @@ class JobLog(Base):
     message: Mapped[str] = mapped_column(Text)
 
     job: Mapped[Job] = relationship(back_populates="logs")
+
+
+class ProviderInstance(Base):
+    """A user-configured provider. ``config`` never contains secret fields: those live in
+    the SecretStore under ``provider:<id>:<field>``; ``secret_fields`` only lists which
+    ones are set."""
+
+    __tablename__ = "provider_instances"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    capability: Mapped[str] = mapped_column(String(16), index=True)
+    type: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(255))
+    config: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    secret_fields: Mapped[list[Any]] = mapped_column(default=list)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class Storyboard(Base):
+    __tablename__ = "storyboards"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ir_documents.id", ondelete="SET NULL"), nullable=True)
+    title: Mapped[str] = mapped_column(String(512))
+    data: Mapped[dict[str, Any]] = mapped_column()
+    # Generation settings resolved at creation (style, aspect, providers, …).
+    settings: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    # Per-scene generated assets: {scene_id: {tts_key, audio, duration_s, words, …}}.
+    assets: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    # Video lifecycle (see videostudio.review.lifecycle).
+    status: Mapped[str] = mapped_column(String(24), default="draft", index=True)
+    status_changed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    approved_render_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Hash of the scenes that were approved; renders with the same hash may be published.
+    approved_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Per-platform post metadata + thumbnail: {"youtube": {...}, "facebook": {...},
+    # "thumbnail": {...}}.
+    publish_meta: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class Render(Base):
+    __tablename__ = "renders"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    storyboard_id: Mapped[str | None] = mapped_column(
+        ForeignKey("storyboards.id", ondelete="SET NULL"), nullable=True)
+    job_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="queued")
+    style: Mapped[str] = mapped_column(String(64))
+    aspect: Mapped[str] = mapped_column(String(8))
+    settings: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    # Output files relative to the data dir: {"video": …, "srt": …, "vtt": …, "ass": …}.
+    outputs: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    duration_s: Mapped[float | None] = mapped_column(nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class Asset(Base):
+    """User-uploaded files: scene images, background music, logos."""
+
+    __tablename__ = "assets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # image | audio | logo
+    filename: Mapped[str] = mapped_column(String(255))
+    rel_path: Mapped[str] = mapped_column(String(1024))
+    mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class VideoEvent(Base):
+    """History of a video: lifecycle transitions, review notes, renders, publications."""
+
+    __tablename__ = "video_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    storyboard_id: Mapped[str] = mapped_column(
+        ForeignKey("storyboards.id", ondelete="CASCADE"), index=True)
+    ts: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    action: Mapped[str] = mapped_column(String(32))
+    from_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    to_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    actor: Mapped[str] = mapped_column(String(64), default="user")
+    note: Mapped[str] = mapped_column(Text, default="")
+    render_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    data: Mapped[dict[str, Any]] = mapped_column(default=dict)
+
+
+class SocialAccount(Base):
+    """A connected channel / page. Tokens live in the SecretStore under
+    ``social:<id>:token``; nothing secret is stored here."""
+
+    __tablename__ = "social_accounts"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    platform: Mapped[str] = mapped_column(String(16), index=True)  # youtube | facebook
+    publisher_id: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(255))
+    external_id: Mapped[str] = mapped_column(String(128))
+    kind: Mapped[str] = mapped_column(String(16), default="channel")  # channel | page
+    avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    meta: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    status: Mapped[str] = mapped_column(String(16), default="connected")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class Publication(Base):
+    """One post of one render to one account. The row id is the idempotency key: a
+    publication uploads at most once; remote ids and resumable-upload state are persisted
+    as soon as they are known."""
+
+    __tablename__ = "publications"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    storyboard_id: Mapped[str] = mapped_column(
+        ForeignKey("storyboards.id", ondelete="CASCADE"), index=True)
+    render_id: Mapped[str | None] = mapped_column(
+        ForeignKey("renders.id", ondelete="SET NULL"), nullable=True)
+    account_id: Mapped[str | None] = mapped_column(
+        ForeignKey("social_accounts.id", ondelete="SET NULL"), nullable=True)
+    publisher_id: Mapped[str] = mapped_column(String(64))
+    platform: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16), index=True, default="queued")
+    meta: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    schedule_mode: Mapped[str] = mapped_column(String(16), default="now")  # now|local|platform
+    scheduled_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    remote_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    remote_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    upload_state: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    warnings: Mapped[list[Any]] = mapped_column(default=list)
+    job_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)

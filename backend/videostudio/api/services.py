@@ -8,7 +8,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from videostudio.config import Settings
 from videostudio.jobs import EventBus, JobQueue
+from videostudio.pipeline.service import PipelineService
 from videostudio.plugins import PluginRegistry
+from videostudio.providers.service import ProviderService
+from videostudio.publishing.accounts import SocialService
+from videostudio.publishing.scheduler import Scheduler
+from videostudio.publishing.service import PublishService
 from videostudio.secretstore import SecretStore
 
 
@@ -21,6 +26,11 @@ class Services:
     bus: EventBus
     queue: JobQueue
     secrets: SecretStore
+    providers: ProviderService
+    pipeline: PipelineService
+    social: SocialService
+    publish: PublishService
+    scheduler: Scheduler
 
 
 def get_services(request: Request) -> Services:

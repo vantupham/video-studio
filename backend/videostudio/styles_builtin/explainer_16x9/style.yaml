@@ -1,0 +1,53 @@
+# Style pack: video giải thích ngang 16:9.
+# Copy this folder to <data dir>/styles/<id>/ to customise it (or only prompts/*.j2 to
+# override the prompts of a built-in style).
+id: explainer_16x9
+name: Giải thích (16:9)
+description: Thẻ tiêu đề, thẻ ý chính, ảnh minh hoạ, phụ đề phía dưới. Hợp cho bài giảng, hướng dẫn.
+aspect: "16:9"
+fps: 30
+pacing:
+  words_per_second: 2.6     # dùng để ước lượng độ dài kịch bản
+  scene_padding_s: 0.5      # khoảng lặng sau lời thoại mỗi cảnh
+  min_scene_s: 2.5
+  fade_s: 0.3
+colors:
+  background: "#0f172a"
+  background2: "#1e3a5f"
+  text: "#f8fafc"
+  accent: "#38bdf8"
+  muted: "#cbd5e1"
+fonts:
+  title: BeVietnamPro-Bold.ttf
+  body: BeVietnamPro-Medium.ttf
+cards:
+  title_size: 0.085         # tỉ lệ theo chiều cao khung hình
+  heading_size: 0.068
+  body_size: 0.05
+  margin: 0.08
+captions:
+  mode: line                # line | word_highlight
+  font: Be Vietnam Pro SemiBold
+  size: 0.046
+  bold: false
+  uppercase: false
+  position: bottom
+  margin_v: 0.05
+  max_chars: 48
+  max_lines: 2
+  max_words: 14
+  primary: "#FFFFFF"
+  highlight: "#FACC15"
+  outline: "#000000"
+  outline_width: 0.0028
+  shadow: 0.0015
+  box: true
+script:
+  scene_seconds: 9
+transitions:
+  type: crossfade            # none | fade | crossfade | slideleft | wipeleft | dissolve | …
+  duration_s: 0.5
+ken_burns:                  # chuyển động chậm cho cảnh ảnh
+  enabled: true
+  zoom: 1.12
+  mode: alternate           # alternate | zoom_in | zoom_out | pan_left | pan_right

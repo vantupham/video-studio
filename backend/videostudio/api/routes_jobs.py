@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from typing import Any
 
 from fastapi import (
@@ -91,7 +92,7 @@ async def jobs_ws(websocket: WebSocket) -> None:
             if project_filter and event.get("type") == "job":
                 if event["job"].get("project_id") != project_filter:
                     continue
-            await websocket.send_json(event)
+            await websocket.send_text(json.dumps(event, default=str, ensure_ascii=False))
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

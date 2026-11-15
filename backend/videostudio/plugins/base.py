@@ -1,21 +1,27 @@
 """Extension-point interfaces.
 
-Phase 0 implements ``InputAdapter`` for real (script, markdown). The other
-interfaces (LLM, TTS, renderer, publisher) are defined here so later phases can
-plug implementations in without changing the core.
+``InputAdapter`` (script, markdown), providers and renderers have implementations; the
+publisher interface is defined so phase 3 can plug implementations in.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, Field
-
 from videostudio.ir import ContentIR
+from videostudio.pipeline.render_types import Renderer, RenderPlan, RenderResult
+from videostudio.providers.base import (
+    AlignmentProvider,
+    BaseProvider,
+    ChatMessage,
+    LLMProvider,
+    MediaProvider,
+    TTSProvider,
+    WordTiming,
+)
 
 
 class JobCancelled(Exception):
@@ -49,6 +55,13 @@ class JobContext:
     progress_cb: Callable[[int, str | None], None] | None = None
     log_cb: Callable[[str, str], None] | None = None
     cancelled_cb: Callable[[], bool] | None = None
+    # (capability, instance id or None for the default) -> ResolvedProvider
+    resolve_provider: Callable[[str, str | None], Any] | None = None
+
+    def provider(self, capability: str, instance_id: str | None = None) -> Any:
+        if self.resolve_provider is None:
+            raise RuntimeError(f"No provider resolver available for '{capability}'")
+        return self.resolve_provider(capability, instance_id)
 
     def report_progress(self, percent: float, message: str | None = None) -> None:
         if self.progress_cb:
@@ -85,120 +98,43 @@ class InputAdapter(Protocol):
 
 
 # --------------------------------------------------------------------------------------
-# Interfaces for later phases (no implementation in phase 0).
+# Providers (LLM / TTS / alignment / media) live in ``videostudio.providers``; renderers
+# in ``videostudio.pipeline.render_types``. They are re-exported here for plugin authors.
+# Publishers: models and the base class live in ``videostudio.publishing.base``
+# (``Publisher``, ``PublishConstraints``, ``PublishRequest``, ``PublishResult``,
+# ``PublishContext``). This protocol is what the registry checks.
 # --------------------------------------------------------------------------------------
-
-
-class ChatMessage(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: str
-
-
-@runtime_checkable
-class LLMProvider(Protocol):
-    id: str
-    name: str
-
-    def config_schema(self) -> dict[str, Any]: ...
-
-    async def complete(
-        self,
-        messages: list[ChatMessage],
-        *,
-        json_schema: dict[str, Any] | None = None,
-        temperature: float = 0.7,
-    ) -> str: ...
-
-    def stream(self, messages: list[ChatMessage]) -> AsyncIterator[str]: ...
-
-
-class WordTiming(BaseModel):
-    text: str
-    start_s: float
-    end_s: float
-
-
-class TTSResult(BaseModel):
-    audio_path: Path
-    duration_s: float
-    words: list[WordTiming] = Field(default_factory=list)
-
-
-@runtime_checkable
-class TTSProvider(Protocol):
-    id: str
-    name: str
-    languages: tuple[str, ...]
-
-    def config_schema(self) -> dict[str, Any]: ...
-
-    async def list_voices(self, lang: str | None = None) -> list[dict[str, Any]]: ...
-
-    async def synthesize(
-        self, text: str, *, voice: str, out_path: Path, ctx: JobContext
-    ) -> TTSResult: ...
-
-
-class RenderRequest(BaseModel):
-    project_id: str
-    style_id: str
-    aspect_ratio: Literal["16:9", "9:16", "1:1"] = "16:9"
-    out_path: Path
-    options: dict[str, Any] = Field(default_factory=dict)
-
-
-class RenderResult(BaseModel):
-    video_path: Path
-    duration_s: float
-    thumbnail_path: Path | None = None
-
-
-@runtime_checkable
-class Renderer(Protocol):
-    id: str
-    name: str
-
-    def config_schema(self) -> dict[str, Any]: ...
-
-    async def render(self, request: RenderRequest, ctx: JobContext) -> RenderResult: ...
-
-
-class PublishConstraints(BaseModel):
-    max_duration_s: float | None = None
-    max_file_size_mb: float | None = None
-    aspect_ratios: list[str] = Field(default_factory=list)
-    max_title_len: int | None = None
-    max_description_len: int | None = None
-    supports_scheduling: bool = False
-
-
-class PublishRequest(BaseModel):
-    video_path: Path
-    title: str
-    description: str = ""
-    tags: list[str] = Field(default_factory=list)
-    thumbnail_path: Path | None = None
-    scheduled_at: datetime | None = None
-    privacy: Literal["public", "unlisted", "private"] = "private"
-    options: dict[str, Any] = Field(default_factory=dict)
-
-
-class PublishStatus(BaseModel):
-    remote_id: str
-    state: Literal["uploading", "processing", "scheduled", "published", "failed"]
-    url: str | None = None
-    detail: str | None = None
 
 
 @runtime_checkable
 class Publisher(Protocol):
     id: str
     name: str
+    platform: str
 
-    def config_schema(self) -> dict[str, Any]: ...
+    def constraints(self, options: dict[str, Any] | None = None) -> Any: ...
 
-    def constraints(self) -> PublishConstraints: ...
+    def metadata_schema(self) -> dict[str, Any]: ...
 
-    async def publish(self, request: PublishRequest, ctx: JobContext) -> PublishStatus: ...
+    async def publish(self, req: Any, pctx: Any) -> Any: ...
 
-    async def status(self, remote_id: str) -> PublishStatus: ...
+    async def status(self, remote_id: str, pctx: Any) -> Any: ...
+
+
+__all__ = [
+    "AlignmentProvider",
+    "BaseProvider",
+    "ChatMessage",
+    "InputAdapter",
+    "JobCancelled",
+    "JobContext",
+    "LLMProvider",
+    "MediaProvider",
+    "Publisher",
+    "RenderPlan",
+    "RenderResult",
+    "Renderer",
+    "SourceRef",
+    "TTSProvider",
+    "WordTiming",
+]
