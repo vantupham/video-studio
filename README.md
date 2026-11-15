@@ -64,6 +64,8 @@ chưa, bộ cài sẽ tự tải.
 - Python 3.11+ và [uv](https://docs.astral.sh/uv/) (uv tự cài Python nếu thiếu)
 - Linux: các gói hệ thống của Tauri, ví dụ Ubuntu/Debian:
   `sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev build-essential pkg-config libssl-dev`
+  — và `gstreamer1.0-libav` để trình phát video trong cửa sổ Tauri (WebKitGTK) giải mã được
+  H.264 (Windows dùng WebView2, không cần)
 - `ffmpeg` (có libass) trong `PATH` khi dev trên Linux/macOS để render video
   (`sudo apt install ffmpeg`); trên Windows `scripts\fetch-ffmpeg.ps1` tải sẵn
 - (Tuỳ chọn) giọng đọc / căn phụ đề offline: `cd backend && uv sync --extra offline` (Piper),
