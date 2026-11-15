@@ -43,12 +43,39 @@ $srcDir = $found.DirectoryName
 
 New-Item -ItemType Directory -Force -Path (Join-Path $Dest "tessdata") | Out-Null
 Copy-Item $found.FullName -Destination $Dest -Force
-# Only the runtime: tesseract.exe + DLLs (training tools, docs and the big "best"
-# eng model are left out).
+# Only the runtime: tesseract.exe + the DLLs it imports. The installer also carries the
+# training tools and their dependencies (pango, cairo, ICU, glib…), docs and the big
+# "best" eng model, none of which OCR needs.
 Get-ChildItem -Path $srcDir -Filter "*.dll" | Copy-Item -Destination $Dest -Force
 foreach ($name in @("LICENSE", "LICENSE.txt", "COPYING")) {
   $lic = Join-Path $srcDir $name
   if (Test-Path $lic) { Copy-Item $lic -Destination (Join-Path $Dest "TESSERACT-LICENSE.txt") -Force; break }
+}
+$prune = Join-Path $PSScriptRoot "prune_dlls.py"
+if (Get-Command uv -ErrorAction SilentlyContinue) {
+  & uv run --no-project python $prune $Dest tesseract.exe
+} else {
+  & python $prune $Dest tesseract.exe
+}
+if ($LASTEXITCODE -ne 0) { throw "Pruning unused Tesseract DLLs failed" }
+
+# The UB-Mannheim binaries keep their DWARF debug info (libtesseract-5.dll alone is ~100 MB,
+# ~4 MB without it). Any strip that understands PE works; the build still succeeds without.
+$strip = @(
+  (Get-Command llvm-strip -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+  "$env:ProgramFiles\LLVM\bin\llvm-strip.exe",
+  (Get-Command strip -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+  "C:\msys64\mingw64\bin\strip.exe",
+  "C:\Strawberry\c\bin\strip.exe"
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+if ($strip) {
+  Write-Host "Stripping debug info with $strip"
+  Get-ChildItem -Path $Dest -Include "*.dll", "*.exe" -File -Recurse | ForEach-Object {
+    & $strip --strip-debug $_.FullName
+    if ($LASTEXITCODE -ne 0) { throw "strip failed on $($_.Name)" }
+  }
+} else {
+  Write-Warning "No strip tool found (llvm-strip / mingw strip): Tesseract DLLs keep their debug info (~100 MB larger)"
 }
 
 foreach ($lang in $models) {

@@ -57,6 +57,7 @@ foreach ($path in $required) {
 }
 $tessMb = [math]::Round(((Get-ChildItem (Join-Path $InstallDir "tesseract") -Recurse | Measure-Object Length -Sum).Sum) / 1MB, 1)
 Write-Host "Bundled Tesseract: $tessMb MB installed"
+if ($tessMb -gt 60) { throw "Bundled Tesseract is $tessMb MB: unused DLLs or debug info were not removed (fetch-tesseract.ps1)" }
 
 Write-Host "== Smoke-testing installed sidecar"
 Push-Location (Join-Path $Root "backend")
