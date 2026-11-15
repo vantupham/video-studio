@@ -60,22 +60,37 @@ if (Get-Command uv -ErrorAction SilentlyContinue) {
 if ($LASTEXITCODE -ne 0) { throw "Pruning unused Tesseract DLLs failed" }
 
 # The UB-Mannheim binaries keep their DWARF debug info (libtesseract-5.dll alone is ~100 MB,
-# ~4 MB without it). Any strip that understands PE works; the build still succeeds without.
-$strip = @(
-  (Get-Command llvm-strip -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
-  "$env:ProgramFiles\LLVM\bin\llvm-strip.exe",
-  (Get-Command strip -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+# ~4 MB without it). GNU strip comes first: llvm-strip rejects libtesseract-5.dll
+# ("invalid SymbolTableIndex"). Each file falls back to the next tool and is left as-is if
+# none can handle it; verify-installer.ps1 enforces the size budget.
+$strips = @(
   "C:\msys64\mingw64\bin\strip.exe",
-  "C:\Strawberry\c\bin\strip.exe"
-) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-if ($strip) {
-  Write-Host "Stripping debug info with $strip"
+  "C:\msys64\ucrt64\bin\strip.exe",
+  "C:\mingw64\bin\strip.exe",
+  "C:\Strawberry\c\bin\strip.exe",
+  (Get-Command strip -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+  (Get-Command llvm-strip -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
+  "$env:ProgramFiles\LLVM\bin\llvm-strip.exe"
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+if ($strips) {
+  Write-Host "Strip tools: $($strips -join ', ')"
   Get-ChildItem -Path $Dest -Include "*.dll", "*.exe" -File -Recurse | ForEach-Object {
-    & $strip --strip-debug $_.FullName
-    if ($LASTEXITCODE -ne 0) { throw "strip failed on $($_.Name)" }
+    $file = $_.FullName
+    $stripped = "$file.stripped"
+    $done = $false
+    foreach ($strip in $strips) {
+      & $strip --strip-debug -o $stripped $file 2>&1 | Out-Host
+      if ($LASTEXITCODE -eq 0 -and (Test-Path $stripped)) {
+        Move-Item $stripped $file -Force
+        $done = $true
+        break
+      }
+      Remove-Item $stripped -Force -ErrorAction SilentlyContinue
+    }
+    if (-not $done) { Write-Warning "Could not strip $($_.Name); keeping it unstripped" }
   }
 } else {
-  Write-Warning "No strip tool found (llvm-strip / mingw strip): Tesseract DLLs keep their debug info (~100 MB larger)"
+  Write-Warning "No strip tool found (mingw strip / llvm-strip): Tesseract DLLs keep their debug info (~100 MB larger)"
 }
 
 foreach ($lang in $models) {

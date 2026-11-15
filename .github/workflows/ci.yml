@@ -95,6 +95,15 @@ jobs:
       - name: Download FFmpeg
         run: ./scripts/fetch-ffmpeg.ps1
 
+      - name: Install GNU strip (MSYS2 binutils)
+        continue-on-error: true
+        run: |
+          if (Test-Path C:\msys64\usr\bin\pacman.exe) {
+            C:\msys64\usr\bin\pacman.exe -S --noconfirm --needed mingw-w64-x86_64-binutils
+          } else {
+            Write-Warning "MSYS2 not found on this runner image"
+          }
+
       - name: Download Tesseract OCR
         run: ./scripts/fetch-tesseract.ps1
 
