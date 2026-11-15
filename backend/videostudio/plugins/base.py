@@ -1,13 +1,12 @@
 """Extension-point interfaces.
 
-Phase 0 implements ``InputAdapter`` for real (script, markdown). The other
-interfaces (LLM, TTS, renderer, publisher) are defined here so later phases can
-plug implementations in without changing the core.
+``InputAdapter`` (script, markdown), providers and renderers have implementations; the
+publisher interface is defined so phase 3 can plug implementations in.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +15,16 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from pydantic import BaseModel, Field
 
 from videostudio.ir import ContentIR
+from videostudio.pipeline.render_types import Renderer, RenderPlan, RenderResult
+from videostudio.providers.base import (
+    AlignmentProvider,
+    BaseProvider,
+    ChatMessage,
+    LLMProvider,
+    MediaProvider,
+    TTSProvider,
+    WordTiming,
+)
 
 
 class JobCancelled(Exception):
@@ -85,82 +94,10 @@ class InputAdapter(Protocol):
 
 
 # --------------------------------------------------------------------------------------
-# Interfaces for later phases (no implementation in phase 0).
+# Providers (LLM / TTS / alignment / media) live in ``videostudio.providers``; renderers
+# in ``videostudio.pipeline.render_types``. They are re-exported here for plugin authors.
+# Publishers are still an interface only (phase 3).
 # --------------------------------------------------------------------------------------
-
-
-class ChatMessage(BaseModel):
-    role: Literal["system", "user", "assistant"]
-    content: str
-
-
-@runtime_checkable
-class LLMProvider(Protocol):
-    id: str
-    name: str
-
-    def config_schema(self) -> dict[str, Any]: ...
-
-    async def complete(
-        self,
-        messages: list[ChatMessage],
-        *,
-        json_schema: dict[str, Any] | None = None,
-        temperature: float = 0.7,
-    ) -> str: ...
-
-    def stream(self, messages: list[ChatMessage]) -> AsyncIterator[str]: ...
-
-
-class WordTiming(BaseModel):
-    text: str
-    start_s: float
-    end_s: float
-
-
-class TTSResult(BaseModel):
-    audio_path: Path
-    duration_s: float
-    words: list[WordTiming] = Field(default_factory=list)
-
-
-@runtime_checkable
-class TTSProvider(Protocol):
-    id: str
-    name: str
-    languages: tuple[str, ...]
-
-    def config_schema(self) -> dict[str, Any]: ...
-
-    async def list_voices(self, lang: str | None = None) -> list[dict[str, Any]]: ...
-
-    async def synthesize(
-        self, text: str, *, voice: str, out_path: Path, ctx: JobContext
-    ) -> TTSResult: ...
-
-
-class RenderRequest(BaseModel):
-    project_id: str
-    style_id: str
-    aspect_ratio: Literal["16:9", "9:16", "1:1"] = "16:9"
-    out_path: Path
-    options: dict[str, Any] = Field(default_factory=dict)
-
-
-class RenderResult(BaseModel):
-    video_path: Path
-    duration_s: float
-    thumbnail_path: Path | None = None
-
-
-@runtime_checkable
-class Renderer(Protocol):
-    id: str
-    name: str
-
-    def config_schema(self) -> dict[str, Any]: ...
-
-    async def render(self, request: RenderRequest, ctx: JobContext) -> RenderResult: ...
 
 
 class PublishConstraints(BaseModel):
@@ -202,3 +139,25 @@ class Publisher(Protocol):
     async def publish(self, request: PublishRequest, ctx: JobContext) -> PublishStatus: ...
 
     async def status(self, remote_id: str) -> PublishStatus: ...
+
+
+__all__ = [
+    "AlignmentProvider",
+    "BaseProvider",
+    "ChatMessage",
+    "InputAdapter",
+    "JobCancelled",
+    "JobContext",
+    "LLMProvider",
+    "MediaProvider",
+    "PublishConstraints",
+    "PublishRequest",
+    "PublishStatus",
+    "Publisher",
+    "RenderPlan",
+    "RenderResult",
+    "Renderer",
+    "SourceRef",
+    "TTSProvider",
+    "WordTiming",
+]

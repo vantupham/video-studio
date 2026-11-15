@@ -276,10 +276,19 @@ class JobQueue:
             else:
                 self._finish(snap.id, CANCELLED, message="Đã huỷ", log_msg="Cancelled")
         except Exception as exc:  # noqa: BLE001
-            log.exception("Job %s failed", snap.id)
-            self._log(snap.id, traceback.format_exc(), "error")
-            self._finish(snap.id, FAILED, message="Lỗi", error=f"{type(exc).__name__}: {exc}",
-                         log_msg="Failed")
+            user_message = getattr(exc, "user_message", None)
+            if user_message is None and type(exc).__module__.startswith("videostudio.providers"):
+                user_message = str(exc)
+            if user_message is not None:
+                # expected failures (bad key, quota, timeout…): no traceback noise
+                log.warning("Job %s failed: %s", snap.id, user_message)
+                self._log(snap.id, user_message, "error")
+                error = user_message
+            else:
+                log.exception("Job %s failed", snap.id)
+                self._log(snap.id, traceback.format_exc(), "error")
+                error = f"{type(exc).__name__}: {exc}"
+            self._finish(snap.id, FAILED, message="Lỗi", error=error, log_msg="Failed")
         else:
             self._finish(snap.id, SUCCEEDED, message="Hoàn tất", result=result or {},
                          progress=100, log_msg="Succeeded")

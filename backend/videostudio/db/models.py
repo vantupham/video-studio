@@ -44,6 +44,8 @@ class Project(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text, default="")
+    # Per-project overrides: style, aspect, providers (instance/model/voice), …
+    settings: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utcnow, onupdate=utcnow
@@ -129,3 +131,85 @@ class JobLog(Base):
     message: Mapped[str] = mapped_column(Text)
 
     job: Mapped[Job] = relationship(back_populates="logs")
+
+
+class ProviderInstance(Base):
+    """A user-configured provider. ``config`` never contains secret fields: those live in
+    the SecretStore under ``provider:<id>:<field>``; ``secret_fields`` only lists which
+    ones are set."""
+
+    __tablename__ = "provider_instances"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    capability: Mapped[str] = mapped_column(String(16), index=True)
+    type: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(255))
+    config: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    secret_fields: Mapped[list[Any]] = mapped_column(default=list)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class Storyboard(Base):
+    __tablename__ = "storyboards"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    document_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ir_documents.id", ondelete="SET NULL"), nullable=True)
+    title: Mapped[str] = mapped_column(String(512))
+    data: Mapped[dict[str, Any]] = mapped_column()
+    # Generation settings resolved at creation (style, aspect, providers, …).
+    settings: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    # Per-scene generated assets: {scene_id: {tts_key, audio, duration_s, words, …}}.
+    assets: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
+class Render(Base):
+    __tablename__ = "renders"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    storyboard_id: Mapped[str | None] = mapped_column(
+        ForeignKey("storyboards.id", ondelete="SET NULL"), nullable=True)
+    job_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="queued")
+    style: Mapped[str] = mapped_column(String(64))
+    aspect: Mapped[str] = mapped_column(String(8))
+    settings: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    # Output files relative to the data dir: {"video": …, "srt": …, "vtt": …, "ass": …}.
+    outputs: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    duration_s: Mapped[float | None] = mapped_column(nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class Asset(Base):
+    """User-uploaded files: scene images, background music, logos."""
+
+    __tablename__ = "assets"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(16))  # image | audio | logo
+    filename: Mapped[str] = mapped_column(String(255))
+    rel_path: Mapped[str] = mapped_column(String(1024))
+    mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)

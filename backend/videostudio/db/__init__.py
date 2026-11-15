@@ -1,13 +1,32 @@
-from .models import Base, IRDocument, Job, JobLog, Project, Source, new_id, utcnow
+from .models import (
+    AppSetting,
+    Asset,
+    Base,
+    IRDocument,
+    Job,
+    JobLog,
+    Project,
+    ProviderInstance,
+    Render,
+    Source,
+    Storyboard,
+    new_id,
+    utcnow,
+)
 from .session import make_engine, make_session_factory, run_migrations
 
 __all__ = [
+    "AppSetting",
+    "Asset",
     "Base",
     "IRDocument",
     "Job",
     "JobLog",
     "Project",
+    "ProviderInstance",
+    "Render",
     "Source",
+    "Storyboard",
     "make_engine",
     "make_session_factory",
     "new_id",
