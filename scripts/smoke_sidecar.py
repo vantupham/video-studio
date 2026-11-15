@@ -119,7 +119,8 @@ def smoke_render(base: str, token: str, pid: str, doc_id: str) -> None:
 DOCUMENT_CHECKS = {
     "tài liệu mẫu.docx": ("docx", "Hướng dẫn trồng cà phê", ["Tây Nguyên"]),
     "tài liệu mẫu.pdf": ("pdf", "Du lịch Việt Nam", ["Vịnh Hạ Long", "Sửng Sốt"]),
-    "bản scan.pdf": ("pdf", None, ["Phở", "Bún bò Huế"]),
+    # Words Tesseract reads reliably in both Times New Roman (Windows) and Liberation Serif.
+    "bản scan.pdf": ("pdf", None, ["Phở", "Bánh mì Sài Gòn", "thế giới"]),
 }
 
 
