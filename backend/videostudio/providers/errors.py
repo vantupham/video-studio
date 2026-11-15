@@ -4,6 +4,7 @@ contain secrets."""
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -55,7 +56,20 @@ _QUOTA_HINTS = ("insufficient_quota", "quota", "rate limit", "rate_limit", "cred
                 "resource_exhausted", "quota_exceeded")
 
 
+# Upstream error bodies sometimes echo the (partially masked) key, e.g. OpenAI's
+# "Incorrect API key provided: sk-abc*****wxyz". Anything key-shaped is replaced.
+_KEYLIKE = re.compile(r"\b(?:sk|pk|rk|xai|AIza|key)[-_A-Za-z0-9*.]{6,}|[A-Za-z0-9_\-*]{24,}")
+
+
+def redact(text: str) -> str:
+    return _KEYLIKE.sub("••••", text)
+
+
 def _excerpt(response: httpx.Response, limit: int = 300) -> str:
+    return redact(_raw_excerpt(response, limit))
+
+
+def _raw_excerpt(response: httpx.Response, limit: int) -> str:
     try:
         data = response.json()
         if isinstance(data, dict):

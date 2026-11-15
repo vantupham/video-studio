@@ -405,3 +405,17 @@ def test_every_provider_has_valid_schema():
         assert p.describe()["name"]
     for cap in ("llm", "tts", "alignment", "media"):
         assert any(p.capability == cap and p.is_mock for p in builtin_providers()), cap
+
+
+async def test_upstream_error_text_never_echoes_keys():
+    body = {"error": {"message": "Incorrect API key provided: sk-e2e-t**************abcd. "
+                                 "You can find your API key at https://platform.openai.com."}}
+    with respx.mock() as mock:
+        mock.post("https://api.openai.com/v1/chat/completions").mock(
+            return_value=httpx.Response(401, json=body))
+        with pytest.raises(ProviderAuthError) as info:
+            await llm.OpenAILLM().complete(
+                ctx(api_key="sk-e2e-test-1234567890abcd", model="gpt-4o-mini"), MSGS)
+    message = info.value.message
+    assert "sk-e2e" not in message and "abcd" not in message
+    assert "Incorrect API key provided: ••••" in message

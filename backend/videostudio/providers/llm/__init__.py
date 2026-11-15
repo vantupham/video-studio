@@ -505,7 +505,7 @@ def mock_scene(payload: dict[str, Any]) -> dict[str, Any]:
     if "ngắn" in lowered or "short" in lowered:
         narration = _SENTENCE.split(narration)[0]
     elif instruction:
-        narration = f"{narration.rstrip('.')} — {instruction}."
+        narration = f"{narration.rstrip('.')} — {instruction.rstrip('.')}."
     return {
         "narration": narration,
         "visual_type": scene.get("visual_type") or "text_card",
