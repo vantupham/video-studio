@@ -1,4 +1,6 @@
-"""Built-in job types: ``demo`` (proves the queue) and ``ingest`` (runs input adapters)."""
+"""Built-in job types: ``demo``, ``ingest`` (input adapters) and the video pipeline jobs
+``script`` (IR → storyboard), ``scene_regen`` (rewrite one scene), ``tts`` (narration only)
+and ``render`` (narration + subtitles + video)."""
 
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from videostudio.config import Settings
 from videostudio.db import IRDocument, Project, Source, new_id
+from videostudio.pipeline.service import PipelineService
 from videostudio.plugins import JobContext, PluginRegistry, SourceRef
 
 from .queue import JobQueue, JobSnapshot
@@ -104,12 +107,40 @@ def make_ingest_job(
     return ingest_job
 
 
+def make_pipeline_jobs(pipeline: PipelineService) -> dict[str, Any]:
+    async def script_job(job: JobSnapshot, ctx: JobContext) -> dict[str, Any]:
+        if not job.project_id:
+            raise ValueError("script job requires project_id")
+        return await pipeline.create_storyboard(job.project_id, job.payload.get("document_id"),
+                                                job.payload.get("settings") or {}, ctx)
+
+    async def scene_regen_job(job: JobSnapshot, ctx: JobContext) -> dict[str, Any]:
+        return await pipeline.regenerate_scene(job.payload["storyboard_id"],
+                                               job.payload["scene_id"],
+                                               job.payload.get("instruction") or "", ctx)
+
+    async def tts_job(job: JobSnapshot, ctx: JobContext) -> dict[str, Any]:
+        result = await pipeline.synthesize_scenes(job.payload["storyboard_id"], ctx,
+                                                  only=job.payload.get("scene_ids"))
+        return {"scenes": result["scenes"], "cache_hits": result["cache_hits"]}
+
+    async def render_job(job: JobSnapshot, ctx: JobContext) -> dict[str, Any]:
+        return await pipeline.render(job.payload["render_id"], ctx)
+
+    return {"script": script_job, "scene_regen": scene_regen_job, "tts": tts_job,
+            "render": render_job}
+
+
 def register_builtin_handlers(
     queue: JobQueue,
     session_factory: sessionmaker[Session],
     settings: Settings,
     registry: PluginRegistry,
+    pipeline: PipelineService | None = None,
 ) -> None:
     queue.register("demo", demo_job)
     queue.register("ingest", make_ingest_job(session_factory, settings, registry))
+    if pipeline is not None:
+        for job_type, handler in make_pipeline_jobs(pipeline).items():
+            queue.register(job_type, handler)
     queue.set_project_dir_resolver(settings.project_dir)

@@ -1,0 +1,14 @@
+Hãy viết kịch bản video ngắn dọc 9:16 (TikTok/Reels/Shorts) từ tài liệu "{{ title }}".
+
+Yêu cầu:
+- Tổng thời lượng khoảng {{ target_duration_s }} giây (≈ {{ target_words }} từ, tốc độ {{ words_per_second }} từ/giây).
+- Tối đa {{ max_scenes }} cảnh, mỗi cảnh 3–5 giây, nhịp nhanh.
+- Cảnh đầu là câu "móc" (hook) gây tò mò, dùng "title_card" với tiêu đề ≤ 6 từ.
+- Mỗi cảnh một ý duy nhất, câu ngắn, mạnh. Dùng "text_card" với title ngắn (≤ 5 từ) hoặc "stock" kèm image_query (tiếng Anh).
+- Cảnh cuối kêu gọi hành động ngắn gọn (theo dõi, lưu lại…).
+- Ngôn ngữ lời thoại: {{ language_name }}.
+
+Nội dung tài liệu (JSON):
+```json
+{{ payload_json }}
+```

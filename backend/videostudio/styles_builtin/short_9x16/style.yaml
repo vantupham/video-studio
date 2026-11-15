@@ -1,0 +1,44 @@
+# Style pack: video ngắn dọc 9:16 (TikTok / Reels / Shorts).
+id: short_9x16
+name: Video ngắn (9:16)
+description: Phụ đề chữ lớn tô sáng từng từ, nhịp nhanh, cảnh ngắn. Hợp cho TikTok, Reels, Shorts.
+aspect: "9:16"
+fps: 30
+pacing:
+  words_per_second: 2.9
+  scene_padding_s: 0.15
+  min_scene_s: 1.5
+  fade_s: 0.12
+colors:
+  background: "#111827"
+  background2: "#7c3aed"
+  text: "#ffffff"
+  accent: "#facc15"
+  muted: "#e5e7eb"
+fonts:
+  title: BeVietnamPro-ExtraBold.ttf
+  body: BeVietnamPro-Bold.ttf
+cards:
+  title_size: 0.058
+  heading_size: 0.048
+  body_size: 0.036
+  margin: 0.09
+captions:
+  mode: word_highlight
+  font: Be Vietnam Pro ExtraBold
+  size: 0.052
+  bold: false
+  uppercase: true
+  position: center
+  margin_v: 0.30            # tính từ dưới lên, tỉ lệ chiều cao
+  max_chars: 22
+  max_lines: 2
+  max_words: 3
+  primary: "#FFFFFF"
+  highlight: "#FACC15"
+  outline: "#000000"
+  outline_width: 0.0045
+  shadow: 0.002
+  box: false
+script:
+  scene_seconds: 4

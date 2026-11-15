@@ -1,0 +1,13 @@
+Hãy viết kịch bản video giải thích ngang 16:9 từ tài liệu "{{ title }}".
+
+Yêu cầu:
+- Tổng thời lượng khoảng {{ target_duration_s }} giây (≈ {{ target_words }} từ lời thoại, tốc độ {{ words_per_second }} từ/giây).
+- Tối đa {{ max_scenes }} cảnh, mỗi cảnh khoảng {{ style.script.scene_seconds }} giây.
+- Cảnh đầu là "title_card" giới thiệu chủ đề. Các cảnh sau dùng "text_card" với 2–4 ý ngắn (bullets, mỗi ý ≤ 8 từ) tóm tắt lời thoại; dùng "stock" kèm image_query (tiếng Anh) khi một hình minh hoạ giúp dễ hiểu hơn.
+- Cảnh cuối tóm tắt và kết thúc.
+- Ngôn ngữ lời thoại: {{ language_name }}.
+
+Nội dung tài liệu (JSON):
+```json
+{{ payload_json }}
+```
